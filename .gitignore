@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.python-version
+
+# Project state (DB, logs, secrets) — lives in %LOCALAPPDATA% by default
+# but if anyone moves it into the repo dir, keep it out of source.
+*.db
+*.db-shm
+*.db-wal
+*.log
+state.db*
+log/
+.env
+.env.local
+secrets/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Helper / scratch scripts that aren't part of the shipping product
+_run_*.py
+_scratch*.py
+_tmp*.py
