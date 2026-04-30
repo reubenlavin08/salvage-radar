@@ -6,6 +6,7 @@ Open: http://localhost:8765
 """
 import json
 import os
+import re
 import sqlite3
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -262,6 +263,9 @@ INDEX_HTML = """<!doctype html>
     <button data-tab="appraised">Appraised
       <span class="tab-count" id="tab-count-appraised"></span>
     </button>
+    <button data-tab="recent">Recently appraised
+      <span class="tab-count" id="tab-count-recent"></span>
+    </button>
     <button data-tab="archive">Archive
       <span class="tab-count" id="tab-count-archive"></span>
     </button>
@@ -369,21 +373,6 @@ INDEX_HTML = """<!doctype html>
       <span id="appr-live-meta" class="meta">—</span>
     </div>
 
-    <h2 style="margin-top:24px">
-      Recently appraised — feed <span class="window-label">last 24 h, every result</span>
-      <span class="window-count" id="appr-feed-count"></span>
-    </h2>
-    <table>
-      <thead><tr>
-        <th>Appraised</th>
-        <th>Rec</th>
-        <th>Posted</th>
-        <th class="num" style="text-align:right">Ask</th>
-        <th>Title / Reasoning</th>
-      </tr></thead>
-      <tbody id="appr-feed-rows"></tbody>
-    </table>
-
     <h2 style="margin-top:24px" id="appr-live-heading" hidden>In-flight preview (not yet aggregated)</h2>
     <table id="appr-live-table" hidden>
       <thead><tr>
@@ -430,6 +419,29 @@ INDEX_HTML = """<!doctype html>
         <th>Title / Reason</th>
       </tr></thead>
       <tbody id="appr-skip-rows"></tbody>
+    </table>
+  </section>
+
+  <section class="tab-pane" data-tab="recent">
+    <h2 style="margin-top:0">
+      Recently appraised
+      <span class="window-label">chronological feed, last 24 h, every result</span>
+      <span class="window-count" id="appr-feed-count"></span>
+    </h2>
+    <p class="muted" style="margin-top:-4px;font-size:13px">
+      Every appraisal in chronological order — BUY, MAYBE, SKIP, REJECTED.
+      Use this to verify the appraiser is doing work even on cycles
+      that produce no buys.
+    </p>
+    <table>
+      <thead><tr>
+        <th>Appraised</th>
+        <th>Rec</th>
+        <th>Posted</th>
+        <th class="num" style="text-align:right">Ask</th>
+        <th>Title / Reasoning</th>
+      </tr></thead>
+      <tbody id="appr-feed-rows"></tbody>
     </table>
   </section>
 
@@ -887,7 +899,12 @@ INDEX_HTML = """<!doctype html>
       setText('appr-skip-archive-count', skipAA.length ? `${skipAA.length} shown` : '0');
       // Tab labels — show count next to the tab name so the user can see
       // at a glance what each tab contains without having to switch.
-      setText('tab-count-appraised', d.total_recent != null ? `${d.total_recent}` : '');
+      // "Appraised" tab counts BUY/MAYBE picks (the deals view), the
+      // "Recently appraised" tab counts the chronological feed.
+      const recentDealsCount = (topR.length || 0);
+      setText('tab-count-appraised', recentDealsCount > 0 ? `${recentDealsCount}` : '');
+      const feedShown = (d.feed || []).length;
+      setText('tab-count-recent', feedShown > 0 ? `${feedShown}` : '');
       const archiveCount = (d.total || 0) - (d.total_recent || 0);
       setText('tab-count-archive', archiveCount > 0 ? `${archiveCount}` : '');
       renderApprLive(d.live || {});
@@ -1020,6 +1037,25 @@ INDEX_HTML = """<!doctype html>
 """
 
 
+_TZ_RE = re.compile(r"(?:[+-]\d{2}:?\d{2}|Z)$")
+
+
+def _utc_iso(s):
+    """Normalize an ISO timestamp string for JS consumption.
+
+    The watcher and appraiser write naive UTC timestamps (e.g.
+    `2026-04-30T04:37:56.123`). JS `new Date()` treats anything without
+    a timezone marker as LOCAL time, so a UTC value gets displayed
+    7 hours off in PDT. We append `Z` so the browser converts it
+    correctly. No-op if the string already carries `+HH:MM` / `Z`.
+    """
+    if not s or not isinstance(s, str):
+        return s
+    if _TZ_RE.search(s):
+        return s
+    return s + "Z"
+
+
 def _has_column(conn, table, col):
     return any(r[1] == col for r in conn.execute(
         f"PRAGMA table_info({table})").fetchall())
@@ -1133,6 +1169,13 @@ def query_state():
             "ORDER BY first_seen_at DESC LIMIT ?", (RECENT_LIMIT,))]
     finally:
         conn.close()
+
+    # Normalize all timestamp strings so the browser interprets them as
+    # UTC instead of local time.
+    for r in recent:
+        r["first_seen_at"] = _utc_iso(r.get("first_seen_at"))
+        r["posted_at"] = _utc_iso(r.get("posted_at"))
+
     return {
         "total": total,
         "target": target_backfill,
@@ -1147,7 +1190,7 @@ def query_state():
         "top": top,
         "recent": recent,
         "db_path": str(db),
-        "last_insert_at": last_insert,
+        "last_insert_at": _utc_iso(last_insert),
         "seconds_since_last_insert": recent_insert_secs,
         "inserts_15m": inserts_15m,
         "inserts_1h": inserts_1h,
@@ -1340,8 +1383,10 @@ def query_appraisals():
                 "tier": m.get("tier"),
                 "distance_km": m.get("distance_km"),
                 "section": m.get("section"),
-                "posted_at": m.get("posted_at"),
+                "posted_at": _utc_iso(m.get("posted_at")),
             })
+            # run_at is selected directly from the appraisal table.
+            d["run_at"] = _utc_iso(d.get("run_at"))
             return d
 
         # Enrich live-preview rows with cl_watcher metadata (title/link/etc.)
@@ -1387,7 +1432,7 @@ def query_appraisals():
         return {
             "available": True,
             "db_path": str(APPRAISAL_DB_PATH),
-            "last_run": last_run,
+            "last_run": _utc_iso(last_run),
             "seconds_since_last_run": secs_since_appr,
             "appraised_15m": appr_15m,
             "appraised_1h": appr_1h,
