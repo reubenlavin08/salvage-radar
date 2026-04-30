@@ -161,6 +161,16 @@ INDEX_HTML = """<!doctype html>
   .ratio-bad  { color: var(--X); }
   .summary-cell { color: var(--muted); font-size: 12px; max-width: 460px;
                   white-space: pre-wrap; }
+  /* Make distance the visual anchor of each row — large, bold, color-
+     coded by tier band. */
+  .dist-cell { font-weight: 700; font-size: 15px;
+               font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .dist-A { color: var(--A); }      /* <= 2.5 km, very close */
+  .dist-B { color: var(--B); }      /* <= 4.5 km */
+  .dist-C { color: var(--C); }      /* <= 7 km */
+  .dist-D { color: var(--D); }      /* <= 9 km */
+  .dist-far { color: var(--X); }    /* > 9 km, faded */
+  .dist-unknown { color: var(--muted); font-weight: 400; font-style: italic; }
   /* All anchors in the appraiser section use the foreground color so
      they're readable on dark backgrounds (default browser blue is too
      dark against #0a0a0a). Hover gets an underline. */
@@ -283,11 +293,12 @@ INDEX_HTML = """<!doctype html>
     <table>
       <thead><tr>
         <th>Rec</th>
+        <th class="num" style="text-align:right">Distance</th>
+        <th>Tier</th>
         <th class="num" style="text-align:right">Ratio</th>
         <th class="num" style="text-align:right">Ask</th>
         <th class="num" style="text-align:right">Salvage</th>
         <th>Conf</th>
-        <th>Tier</th>
         <th>Neighborhood</th>
         <th>Title / Reasoning</th>
       </tr></thead>
@@ -298,6 +309,7 @@ INDEX_HTML = """<!doctype html>
     <table>
       <thead><tr>
         <th>Rec</th>
+        <th class="num" style="text-align:right">Distance</th>
         <th class="num" style="text-align:right">Ask</th>
         <th class="num" style="text-align:right">Salvage</th>
         <th>Title / Reason</th>
@@ -505,20 +517,47 @@ INDEX_HTML = """<!doctype html>
             ${detail}`;
   }
 
+  function distCell(km) {
+    if (km == null) return '<td class="num dist-cell dist-unknown">—</td>';
+    let cls = 'dist-far';
+    if (km <= 2.5) cls = 'dist-A';
+    else if (km <= 4.5) cls = 'dist-B';
+    else if (km <= 7) cls = 'dist-C';
+    else if (km <= 9) cls = 'dist-D';
+    return `<td class="num dist-cell ${cls}">${km.toFixed(1)} km</td>`;
+  }
+
+  function distBand(km) {
+    // Sort key: closer = lower number. Unknown = highest.
+    if (km == null) return 99;
+    if (km <= 2.5) return 0;
+    if (km <= 4.5) return 1;
+    if (km <= 7) return 2;
+    if (km <= 9) return 3;
+    return 4;
+  }
+
   function renderApprTop(rows) {
     const tb = document.getElementById('appr-top-rows');
     if (!rows || !rows.length) {
-      tb.innerHTML = '<tr><td colspan="8" class="empty">No BUY/MAYBE picks yet — run the appraiser, or check /api/appraisals.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="9" class="empty">No BUY/MAYBE picks yet — run the appraiser, or check /api/appraisals.</td></tr>';
       return;
     }
+    // Re-sort: distance band first, then ratio descending.
+    rows = rows.slice().sort((a, b) => {
+      const ba = distBand(a.distance_km), bb = distBand(b.distance_km);
+      if (ba !== bb) return ba - bb;
+      return (b.ratio || 0) - (a.ratio || 0);
+    });
     tb.innerHTML = rows.map(r => `
       <tr>
         <td>${recoPill(r.recommendation)}</td>
+        ${distCell(r.distance_km)}
+        <td>${tierMini(r.tier)}</td>
         <td class="num ratio-cell ${ratioClass(r.ratio)}">${r.ratio ? r.ratio.toFixed(2) + 'x' : '—'}</td>
         <td class="num">${fmtMoney(r.ask_price)}</td>
         <td class="num">${fmtMoney(r.salvage_realized)}<br><span class="muted">${fmtMoney(r.salvage_low)}–${fmtMoney(r.salvage_high)}</span></td>
         <td>${confPill(r.confidence)}</td>
-        <td>${tierMini(r.tier)}</td>
         <td>${escHTML(r.neighborhood) || '—'}</td>
         <td>${summaryCell(r)}</td>
       </tr>
@@ -528,12 +567,13 @@ INDEX_HTML = """<!doctype html>
   function renderApprSkip(rows) {
     const tb = document.getElementById('appr-skip-rows');
     if (!rows || !rows.length) {
-      tb.innerHTML = '<tr><td colspan="4" class="empty">No skipped items yet.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="5" class="empty">No skipped items yet.</td></tr>';
       return;
     }
     tb.innerHTML = rows.map(r => `
       <tr>
         <td>${recoPill(r.recommendation)}</td>
+        ${distCell(r.distance_km)}
         <td class="num">${fmtMoney(r.ask_price)}</td>
         <td class="num">${fmtMoney(r.salvage_realized)}</td>
         <td>${summaryCell(r)}</td>
@@ -832,7 +872,9 @@ def query_appraisals():
         last_run = conn.execute(
             "SELECT MAX(run_at) FROM appraisal").fetchone()[0]
 
-        # Top by ratio (BUY/MAYBE) — capped at APPRAISAL_TOP_LIMIT
+        # Top by ratio (BUY/MAYBE) — capped at APPRAISAL_TOP_LIMIT.
+        # The dashboard sorts client-side by distance band so the closest
+        # high-ratio items float to the top of the user's eye.
         top_rows = list(conn.execute(
             "SELECT rss_id, ask_price, salvage_low, salvage_high, "
             "salvage_realized, ratio, recommendation, confidence, summary "

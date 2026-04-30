@@ -1,0 +1,74 @@
+[
+  {
+    "rss_id": "sample-001",
+    "title": "Free old HP LaserJet printer — pickup Kits",
+    "body": "Free HP LaserJet 4250 printer. Working when last used a few years ago. Has lots of toner left. Pickup near 33rd & Cambie.",
+    "link": "https://example.test/sample-001",
+    "ask_price": 0,
+    "section": "free",
+    "neighborhood": "kits"
+  },
+  {
+    "rss_id": "sample-002",
+    "title": "WTB: working RPi 4 4GB",
+    "body": "Looking to buy a working Raspberry Pi 4 4GB or 8GB. Will pay $40 cash. Vancouver west side preferred.",
+    "link": "https://example.test/sample-002",
+    "ask_price": 40,
+    "section": "paid",
+    "neighborhood": "ubc"
+  },
+  {
+    "rss_id": "sample-003",
+    "title": "Broken Bambu X1C — for parts",
+    "body": "Bambu Lab X1C 3D printer, broken hotend and one stepper is dead. Comes with spool of PLA, build plate, and AMS unit. $30 cash. Dunbar.",
+    "link": "https://example.test/sample-003",
+    "ask_price": 30,
+    "section": "paid",
+    "neighborhood": "dunbar"
+  },
+  {
+    "rss_id": "sample-004",
+    "title": "Free e-scooter for parts (no battery)",
+    "body": "Xiaomi M365 e-scooter. Hub motor works, controller works, deck cracked. Battery is dead and removed. Free pickup near Granville Island.",
+    "link": "https://example.test/sample-004",
+    "ask_price": 0,
+    "section": "free",
+    "neighborhood": "fairview"
+  },
+  {
+    "rss_id": "sample-005",
+    "title": "Lab DC source 0–30V 5A — $25",
+    "body": "Variable bench power supply, dual range, working. Tested with multimeter. Selling because I'm moving. $25 firm. UBC area.",
+    "link": "https://example.test/sample-005",
+    "ask_price": 25,
+    "section": "paid",
+    "neighborhood": "ubc"
+  },
+  {
+    "rss_id": "sample-006",
+    "title": "Office chair — $20",
+    "body": "Black mesh office chair, hydraulic lift works, one armrest cracked. $20. Mount Pleasant.",
+    "link": "https://example.test/sample-006",
+    "ask_price": 20,
+    "section": "paid",
+    "neighborhood": "mt pleasant"
+  },
+  {
+    "rss_id": "sample-007",
+    "title": "Free old treadmill — needs work",
+    "body": "ProForm treadmill, motor still spins but belt slips. Free if you can pick it up today. Includes original PSU + controller board. Heavy. South Granville.",
+    "link": "https://example.test/sample-007",
+    "ask_price": 0,
+    "section": "free",
+    "neighborhood": "south granville"
+  },
+  {
+    "rss_id": "sample-008",
+    "title": "Drone props 4-pack",
+    "body": "Brand new DJI Mini propellers, 4-pack. Never opened. $10. Kits.",
+    "link": "https://example.test/sample-008",
+    "ask_price": 10,
+    "section": "paid",
+    "neighborhood": "kits"
+  }
+]
