@@ -86,11 +86,24 @@ def main():
         try:
             details = fetcher.enrich_listing(L)
             if details is None:
+                # Real fetch failure — network error, 404, parse error.
                 storage.insert_listing(conn, L["rss_id"], L["title"], "",
                                        L["link"], "", None, False, "",
                                        None, None, None, "fetch_failed",
                                        "none", 0, 0.0, 0, L["section"], None)
                 errors += 1
+                continue
+            if details.get("_too_far"):
+                # Intentional bail-out: listing geocoded outside the
+                # MAX_SCRAPE_DISTANCE_KM radius. Record as EXCLUDE so the
+                # index reflects "deliberately filtered" rather than "error".
+                storage.insert_listing(
+                    conn, L["rss_id"], L["title"], "",
+                    L["link"], "", None, False, "",
+                    details.get("latitude"), details.get("longitude"),
+                    details.get("distance_km"),
+                    "EXCLUDE", "haversine", 0, 0.0, 0,
+                    L["section"], None)
                 continue
             enriched += 1
 

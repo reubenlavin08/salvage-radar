@@ -20,10 +20,17 @@ TARGET_BACKFILL_FALLBACK = 1376  # used only if meta.current_target absent
 TOP_LIMIT = 30
 RECENT_LIMIT = 60  # Indexed-tab chronological feed depth
 
-# Appraiser DB sits next to cl_watcher's state.db, in a subdir.
-APPRAISAL_DB_PATH = (Path(os.environ.get("LOCALAPPDATA",
-                                         str(Path.home())))
-                     / "cl_watcher" / "appraiser" / "appraisal.db")
+# Appraiser DB sits next to cl_watcher's state.db. Use the same
+# resolution chain as cl_watcher/config.py and appraiser/config.py so
+# that setting SALVAGE_RADAR_STATE_DIR moves both DBs in lockstep.
+def _resolve_appraisal_db_path() -> Path:
+    override = os.environ.get("SALVAGE_RADAR_STATE_DIR")
+    if override:
+        return Path(override) / "appraiser" / "appraisal.db"
+    base = os.environ.get("LOCALAPPDATA", str(Path.home()))
+    return Path(base) / "cl_watcher" / "appraiser" / "appraisal.db"
+
+APPRAISAL_DB_PATH = _resolve_appraisal_db_path()
 APPRAISAL_TOP_LIMIT = 50
 
 INDEX_HTML = """<!doctype html>
@@ -1403,7 +1410,10 @@ def query_appraisals():
         # (BUY/MAYBE) vs. what didn't (SKIP/REJECTED).
         try:
             from datetime import datetime as _dt
-            last_run_dt = _dt.fromisoformat(last_run) if last_run else None
+            # Python 3.10's fromisoformat can't parse the 'Z' suffix
+            # (3.11+ can). Strip it so this works on either runtime.
+            _lr = last_run.rstrip("Z") if last_run else None
+            last_run_dt = _dt.fromisoformat(_lr) if _lr else None
             secs_since_appr = (_dt.utcnow() - last_run_dt).total_seconds() \
                 if last_run_dt else None
         except Exception:

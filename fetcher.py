@@ -139,16 +139,20 @@ def enrich_listing(listing: dict) -> dict | None:
             lat = lon = None
 
     # Hard scrape-time radius. If the listing has usable geo and is
-    # outside the radius, return None — the watcher will record it as
-    # tier='fetch_failed' (a cheap placeholder, no body / attribute /
-    # price parsing). This is the fastest possible bail-out: we still
-    # paid for the page fetch, but skip every downstream parse.
+    # outside the radius, return a sentinel dict marking it too-far
+    # so the watcher can record tier='EXCLUDE' rather than mislabel
+    # it as a real fetch_failed (which is for genuine network errors).
     if (lat is not None and lon is not None
             and config.MAX_SCRAPE_DISTANCE_KM is not None):
         d = scoring.haversine_km(lat, lon,
                                  config.DUNBAR_LAT, config.DUNBAR_LON)
         if d > config.MAX_SCRAPE_DISTANCE_KM:
-            return None
+            return {
+                "_too_far": True,
+                "latitude": lat,
+                "longitude": lon,
+                "distance_km": d,
+            }
 
     # Neighborhood string (in title header parens)
     hood = ""
