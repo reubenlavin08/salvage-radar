@@ -99,11 +99,15 @@
   }
   /* Whole tab pane fades in on activation. */
   .tab-pane.active { animation: fadeRise 360ms ease-out both; }
-  /* Each h2 / table row gets a tiny entrance lift. Staggered via
-     animation-delay isn't worth the complexity; uniform 200 ms reads
-     cohesive enough. */
-  h2 { animation: fadeRise 320ms ease-out both; }
-  tbody tr { animation: fadeRise 280ms ease-out both; }
+  /* h2 gets a tiny entrance lift on tab activation. Scoped under
+     .tab-pane.active so the animation runs once when the tab opens,
+     not every time the panel re-renders.
+
+     NOTE: per-row (tbody tr) animation was removed deliberately. The
+     dashboard rebuilds tables every 3-5 s, and an :animation on tr
+     would re-fire on every poll, producing a constant flicker. The
+     tab-pane fade above is enough entry texture. */
+  .tab-pane.active h2 { animation: fadeRise 320ms ease-out both; }
   /* The live "alive" heartbeat pill breathes slowly so the user can
      tell at a glance the data is current. The "stale" pill stays still. */
   .heartbeat-pill.hb-alive { animation: shimmer 2.4s ease-in-out infinite; }
@@ -986,9 +990,21 @@
     pill.textContent = label;
     pill.className = 'heartbeat-pill ' + cls;
     document.getElementById('appr-hb-last').textContent = fmtAge(secs);
-    document.getElementById('appr-hb-15m').textContent = (d.appraised_15m ?? '—').toLocaleString();
-    document.getElementById('appr-hb-1h').textContent = (d.appraised_1h ?? '—').toLocaleString();
-    document.getElementById('appr-hb-24h').textContent = (d.appraised_24h ?? '—').toLocaleString();
+    // Show "real + rejected" split so the prefilter's output doesn't
+    // drown out the agent's actual work in the cycle counter.
+    const fmtSplit = (real, rej) => {
+      const r = (real ?? 0).toLocaleString();
+      const j = (rej ?? 0).toLocaleString();
+      return real == null && rej == null
+        ? '—'
+        : `${r} appraised + ${j} prefiltered`;
+    };
+    document.getElementById('appr-hb-15m').textContent =
+      fmtSplit(d.appraised_15m_real, d.appraised_15m_rejected);
+    document.getElementById('appr-hb-1h').textContent =
+      fmtSplit(d.appraised_1h_real, d.appraised_1h_rejected);
+    document.getElementById('appr-hb-24h').textContent =
+      fmtSplit(d.appraised_24h_real, d.appraised_24h_rejected);
   }
 
   function renderApprLive(live) {

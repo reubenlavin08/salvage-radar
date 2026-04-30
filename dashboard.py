@@ -15,7 +15,24 @@ from urllib.parse import urlparse
 
 import config
 
-PORT = 8765
+# Port: 8765 = full dashboard (default), 8766 = appraiser-focused view.
+# Allow override via DASHBOARD_PORT env var or `--port N` so two instances
+# can run side-by-side without editing this file.
+def _resolve_port() -> int:
+    for i, a in enumerate(sys.argv):
+        if a == "--port" and i + 1 < len(sys.argv):
+            try:
+                return int(sys.argv[i + 1])
+            except ValueError:
+                pass
+        if a.startswith("--port="):
+            try:
+                return int(a.split("=", 1)[1])
+            except ValueError:
+                pass
+    return int(os.environ.get("DASHBOARD_PORT", "8765"))
+
+PORT = _resolve_port()
 TARGET_BACKFILL_FALLBACK = 1376  # used only if meta.current_target absent
 TOP_LIMIT = 30
 RECENT_LIMIT = 60  # Indexed-tab chronological feed depth
@@ -131,11 +148,15 @@ INDEX_HTML = """<!doctype html>
   }
   /* Whole tab pane fades in on activation. */
   .tab-pane.active { animation: fadeRise 360ms ease-out both; }
-  /* Each h2 / table row gets a tiny entrance lift. Staggered via
-     animation-delay isn't worth the complexity; uniform 200 ms reads
-     cohesive enough. */
-  h2 { animation: fadeRise 320ms ease-out both; }
-  tbody tr { animation: fadeRise 280ms ease-out both; }
+  /* h2 gets a tiny entrance lift on tab activation. Scoped under
+     .tab-pane.active so the animation runs once when the tab opens,
+     not every time the panel re-renders.
+
+     NOTE: per-row (tbody tr) animation was removed deliberately. The
+     dashboard rebuilds tables every 3-5 s, and an :animation on tr
+     would re-fire on every poll, producing a constant flicker. The
+     tab-pane fade above is enough entry texture. */
+  .tab-pane.active h2 { animation: fadeRise 320ms ease-out both; }
   /* The live "alive" heartbeat pill breathes slowly so the user can
      tell at a glance the data is current. The "stale" pill stays still. */
   .heartbeat-pill.hb-alive { animation: shimmer 2.4s ease-in-out infinite; }
@@ -1018,9 +1039,21 @@ INDEX_HTML = """<!doctype html>
     pill.textContent = label;
     pill.className = 'heartbeat-pill ' + cls;
     document.getElementById('appr-hb-last').textContent = fmtAge(secs);
-    document.getElementById('appr-hb-15m').textContent = (d.appraised_15m ?? '—').toLocaleString();
-    document.getElementById('appr-hb-1h').textContent = (d.appraised_1h ?? '—').toLocaleString();
-    document.getElementById('appr-hb-24h').textContent = (d.appraised_24h ?? '—').toLocaleString();
+    // Show "real + rejected" split so the prefilter's output doesn't
+    // drown out the agent's actual work in the cycle counter.
+    const fmtSplit = (real, rej) => {
+      const r = (real ?? 0).toLocaleString();
+      const j = (rej ?? 0).toLocaleString();
+      return real == null && rej == null
+        ? '—'
+        : `${r} appraised + ${j} prefiltered`;
+    };
+    document.getElementById('appr-hb-15m').textContent =
+      fmtSplit(d.appraised_15m_real, d.appraised_15m_rejected);
+    document.getElementById('appr-hb-1h').textContent =
+      fmtSplit(d.appraised_1h_real, d.appraised_1h_rejected);
+    document.getElementById('appr-hb-24h').textContent =
+      fmtSplit(d.appraised_24h_real, d.appraised_24h_rejected);
   }
 
   function renderApprLive(live) {
@@ -1232,17 +1265,30 @@ def query_state():
         # Heartbeat counts — how many rows landed in each rolling window.
         # Used by the Indexed tab to show the user that scraping is still
         # alive even when nothing matches their specs.
+        #
+        # CRITICAL: do NOT use SQLite's datetime('now','-N minutes') here.
+        # That function returns a SPACE-separated string ('2026-04-30 05:38:00')
+        # while our row timestamps are T-separated ISO ('2026-04-30T05:38:00').
+        # SQLite's >= becomes a string compare and 'T' (0x54) > ' ' (0x20),
+        # so every same-day row would falsely pass the threshold — turning
+        # "in last 15 min" into "today total". Compute the threshold in
+        # Python in the matching ISO format and pass it as a parameter.
+        from datetime import datetime as _dt3, timedelta as _td3
+        _now_utc = _dt3.utcnow()
+        _t15 = (_now_utc - _td3(minutes=15)).isoformat()
+        _t60 = (_now_utc - _td3(hours=1)).isoformat()
+        _t24h = (_now_utc - _td3(days=1)).isoformat()
         inserts_15m = conn.execute(
-            "SELECT COUNT(*) FROM seen_listings "
-            "WHERE first_seen_at >= datetime('now','-15 minutes')"
+            "SELECT COUNT(*) FROM seen_listings WHERE first_seen_at >= ?",
+            (_t15,)
         ).fetchone()[0]
         inserts_1h = conn.execute(
-            "SELECT COUNT(*) FROM seen_listings "
-            "WHERE first_seen_at >= datetime('now','-1 hour')"
+            "SELECT COUNT(*) FROM seen_listings WHERE first_seen_at >= ?",
+            (_t60,)
         ).fetchone()[0]
         inserts_24h = conn.execute(
-            "SELECT COUNT(*) FROM seen_listings "
-            "WHERE first_seen_at >= datetime('now','-1 day')"
+            "SELECT COUNT(*) FROM seen_listings WHERE first_seen_at >= ?",
+            (_t24h,)
         ).fetchone()[0]
 
         # Phase detection — prefer explicit meta override
@@ -1392,13 +1438,23 @@ def query_appraisals():
                     "FROM appraisal GROUP BY recommendation")}
         total = sum(recs.values())
 
+        # Threshold timestamps in matching ISO format (T-separated). See
+        # the long comment above query_state's heartbeat block for why we
+        # can't use SQLite's datetime('now',...) here — string-compare
+        # against our T-separated row format would silently match every
+        # same-day row.
+        from datetime import datetime as _dt, timedelta as _td
+        _now_utc = _dt.utcnow()
+        _t15m = (_now_utc - _td(minutes=15)).isoformat()
+        _t1h = (_now_utc - _td(hours=1)).isoformat()
+        _t24h = (_now_utc - _td(days=1)).isoformat()
+
         # Counts (last 24 h) so the banner can split "recent vs. archive"
         recs_recent = {row["recommendation"]: row["c"]
                        for row in conn.execute(
                            "SELECT recommendation, COUNT(*) c "
-                           "FROM appraisal "
-                           "WHERE run_at >= datetime('now','-1 day') "
-                           "GROUP BY recommendation")}
+                           "FROM appraisal WHERE run_at >= ? "
+                           "GROUP BY recommendation", (_t24h,))}
         total_recent = sum(recs_recent.values())
 
         last_run = conn.execute(
@@ -1409,24 +1465,39 @@ def query_appraisals():
         # for the appraisal pipeline, broken down by what made the cut
         # (BUY/MAYBE) vs. what didn't (SKIP/REJECTED).
         try:
-            from datetime import datetime as _dt
             # Python 3.10's fromisoformat can't parse the 'Z' suffix
             # (3.11+ can). Strip it so this works on either runtime.
             _lr = last_run.rstrip("Z") if last_run else None
             last_run_dt = _dt.fromisoformat(_lr) if _lr else None
-            secs_since_appr = (_dt.utcnow() - last_run_dt).total_seconds() \
+            secs_since_appr = (_now_utc - last_run_dt).total_seconds() \
                 if last_run_dt else None
         except Exception:
             secs_since_appr = None
-        appr_15m = conn.execute(
-            "SELECT COUNT(*) FROM appraisal "
-            "WHERE run_at >= datetime('now','-15 minutes')").fetchone()[0]
-        appr_1h = conn.execute(
-            "SELECT COUNT(*) FROM appraisal "
-            "WHERE run_at >= datetime('now','-1 hour')").fetchone()[0]
-        appr_24h = conn.execute(
-            "SELECT COUNT(*) FROM appraisal "
-            "WHERE run_at >= datetime('now','-1 day')").fetchone()[0]
+        # Heartbeat counts split by "real appraisal" (LLM did work) vs
+        # "prefilter rejection" (prepare.py dropped before the agent saw it).
+        # Lumping them inflates the visible cycle volume — the user wants
+        # to know how many things the AGENT actually evaluated.
+        appr_15m_real = conn.execute(
+            "SELECT COUNT(*) FROM appraisal WHERE run_at >= ? "
+            "AND recommendation != 'REJECTED'", (_t15m,)).fetchone()[0]
+        appr_15m_rej = conn.execute(
+            "SELECT COUNT(*) FROM appraisal WHERE run_at >= ? "
+            "AND recommendation = 'REJECTED'", (_t15m,)).fetchone()[0]
+        appr_1h_real = conn.execute(
+            "SELECT COUNT(*) FROM appraisal WHERE run_at >= ? "
+            "AND recommendation != 'REJECTED'", (_t1h,)).fetchone()[0]
+        appr_1h_rej = conn.execute(
+            "SELECT COUNT(*) FROM appraisal WHERE run_at >= ? "
+            "AND recommendation = 'REJECTED'", (_t1h,)).fetchone()[0]
+        appr_24h_real = conn.execute(
+            "SELECT COUNT(*) FROM appraisal WHERE run_at >= ? "
+            "AND recommendation != 'REJECTED'", (_t24h,)).fetchone()[0]
+        appr_24h_rej = conn.execute(
+            "SELECT COUNT(*) FROM appraisal WHERE run_at >= ? "
+            "AND recommendation = 'REJECTED'", (_t24h,)).fetchone()[0]
+        appr_15m = appr_15m_real + appr_15m_rej
+        appr_1h = appr_1h_real + appr_1h_rej
+        appr_24h = appr_24h_real + appr_24h_rej
 
         # Top by ratio (BUY/MAYBE), split into "last 24h" and "archive"
         # so the dashboard surfaces what was just appraised before older
@@ -1436,16 +1507,16 @@ def query_appraisals():
             "SELECT rss_id, run_at, ask_price, salvage_low, salvage_high, "
             "salvage_realized, ratio, recommendation, confidence, summary "
             "FROM appraisal "
-            "WHERE recommendation IN ('BUY','MAYBE') "
-            "  AND run_at >= datetime('now','-1 day') "
-            "ORDER BY ratio DESC LIMIT ?", (APPRAISAL_TOP_LIMIT,)))
+            "WHERE recommendation IN ('BUY','MAYBE') AND run_at >= ? "
+            "ORDER BY ratio DESC LIMIT ?",
+            (_t24h, APPRAISAL_TOP_LIMIT)))
         top_archive_rows = list(conn.execute(
             "SELECT rss_id, run_at, ask_price, salvage_low, salvage_high, "
             "salvage_realized, ratio, recommendation, confidence, summary "
             "FROM appraisal "
-            "WHERE recommendation IN ('BUY','MAYBE') "
-            "  AND run_at < datetime('now','-1 day') "
-            "ORDER BY ratio DESC LIMIT ?", (APPRAISAL_TOP_LIMIT,)))
+            "WHERE recommendation IN ('BUY','MAYBE') AND run_at < ? "
+            "ORDER BY ratio DESC LIMIT ?",
+            (_t24h, APPRAISAL_TOP_LIMIT)))
 
         # Chronological feed of every appraisal in the last 24 h —
         # regardless of recommendation. Lets the user see "is the
@@ -1453,23 +1524,20 @@ def query_appraisals():
         feed_rows = list(conn.execute(
             "SELECT rss_id, run_at, ask_price, salvage_realized, ratio, "
             "       recommendation, confidence, summary "
-            "FROM appraisal "
-            "WHERE run_at >= datetime('now','-1 day') "
-            "ORDER BY run_at DESC LIMIT 50"))
+            "FROM appraisal WHERE run_at >= ? "
+            "ORDER BY run_at DESC LIMIT 50", (_t24h,)))
 
         # Skip samples — same recent/archive split.
         skip_recent_rows = list(conn.execute(
             "SELECT rss_id, run_at, ask_price, salvage_realized, ratio, "
             "       recommendation, confidence, summary "
-            "FROM appraisal WHERE recommendation = 'SKIP' "
-            "  AND run_at >= datetime('now','-1 day') "
-            "ORDER BY run_at DESC LIMIT 30"))
+            "FROM appraisal WHERE recommendation = 'SKIP' AND run_at >= ? "
+            "ORDER BY run_at DESC LIMIT 30", (_t24h,)))
         skip_archive_rows = list(conn.execute(
             "SELECT rss_id, run_at, ask_price, salvage_realized, ratio, "
             "       recommendation, confidence, summary "
-            "FROM appraisal WHERE recommendation = 'SKIP' "
-            "  AND run_at < datetime('now','-1 day') "
-            "ORDER BY run_at DESC LIMIT 30"))
+            "FROM appraisal WHERE recommendation = 'SKIP' AND run_at < ? "
+            "ORDER BY run_at DESC LIMIT 30", (_t24h,)))
 
         # Backwards-compat aliases for any external consumers / tests
         # that grab `.top` and `.skipped_sample`.
@@ -1555,6 +1623,16 @@ def query_appraisals():
             "appraised_15m": appr_15m,
             "appraised_1h": appr_1h,
             "appraised_24h": appr_24h,
+            # Split: "real" = LLM agent ran (BUY/MAYBE/SKIP);
+            # "rejected" = prefilter dropped it (REJECTED). The user
+            # cares about the first number — the second tells them
+            # how much the prefilter is doing on their behalf.
+            "appraised_15m_real": appr_15m_real,
+            "appraised_15m_rejected": appr_15m_rej,
+            "appraised_1h_real": appr_1h_real,
+            "appraised_1h_rejected": appr_1h_rej,
+            "appraised_24h_real": appr_24h_real,
+            "appraised_24h_rejected": appr_24h_rej,
             "total": total,
             "total_recent": total_recent,
             "by_recommendation": recs,
