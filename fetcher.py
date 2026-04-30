@@ -13,6 +13,7 @@ import requests
 from bs4 import BeautifulSoup
 
 import config
+import scoring
 
 _session = requests.Session()
 _session.headers.update({
@@ -124,7 +125,8 @@ def enrich_listing(listing: dict) -> dict | None:
         return None
     soup = BeautifulSoup(html, "html.parser")
 
-    # Lat/Lon from map div
+    # Lat/Lon from map div — pulled FIRST so we can early-exit on
+    # out-of-radius listings before running the rest of the parsers.
     lat = lon = None
     map_el = soup.select_one("#map")
     if map_el:
@@ -135,6 +137,18 @@ def enrich_listing(listing: dict) -> dict | None:
                 lon = float(map_el["data-longitude"])
         except (ValueError, TypeError):
             lat = lon = None
+
+    # Hard scrape-time radius. If the listing has usable geo and is
+    # outside the radius, return None — the watcher will record it as
+    # tier='fetch_failed' (a cheap placeholder, no body / attribute /
+    # price parsing). This is the fastest possible bail-out: we still
+    # paid for the page fetch, but skip every downstream parse.
+    if (lat is not None and lon is not None
+            and config.MAX_SCRAPE_DISTANCE_KM is not None):
+        d = scoring.haversine_km(lat, lon,
+                                 config.DUNBAR_LAT, config.DUNBAR_LON)
+        if d > config.MAX_SCRAPE_DISTANCE_KM:
+            return None
 
     # Neighborhood string (in title header parens)
     hood = ""
