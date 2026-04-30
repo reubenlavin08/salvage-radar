@@ -126,6 +126,22 @@ def main():
             ask, is_free, price_uncertain = scoring.reconcile_price(
                 details["ask_price"], details["price_unknown"], L["section"])
 
+            # Hard scrape-time price ceiling. Craigslist's `max_price` URL
+            # param filters the SEARCH results, but the actual listing's
+            # ask_price (parsed from the listing page) can drift above
+            # that — typo, post-listing edit, or section misclassification.
+            # Force-EXCLUDE here so the appraiser never sees over-budget
+            # paid listings, matching the user's "nothing >$30 reaches
+            # the appraiser" rule. Free section is exempt (price=0 by
+            # definition); price_uncertain rows pass through (we don't
+            # know yet, let downstream decide).
+            if (not is_free and not price_uncertain
+                    and ask is not None
+                    and ask > config.MAX_PAID_PRICE):
+                log.info(f"  $-ceiling: {L['rss_id']} ask=${ask} > "
+                         f"${config.MAX_PAID_PRICE} → EXCLUDE")
+                tier = "EXCLUDE"
+
             if tier == "EXCLUDE":
                 storage.insert_listing(
                     conn, L["rss_id"], L["title"], details["body"],

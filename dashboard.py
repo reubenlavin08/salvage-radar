@@ -355,6 +355,44 @@ INDEX_HTML = """<!doctype html>
   .tabs button.active .tab-count { color: var(--muted); }
   .tab-pane { display: none; }
   .tab-pane.active { display: block; }
+
+  /* Debug-tab specific styling. Kept minimal — log tails dominate the
+     visual weight and they have their own monospace pre block. */
+  .dbg-card {
+    border: 1px solid var(--rule); border-radius: 4px;
+    padding: 12px 14px; background: var(--bg-soft);
+    font-size: 13px; line-height: 1.55;
+  }
+  .dbg-card.ok    { border-left: 3px solid #2f7d2f; }
+  .dbg-card.fail  { border-left: 3px solid #b03030; }
+  .dbg-card.unknown { border-left: 3px solid var(--muted); }
+  .dbg-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+  }
+  .dbg-h3 {
+    font-size: 13px; font-weight: 600; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.04em;
+    margin: 0 0 8px 0;
+  }
+  table.dbg-mini { font-size: 13px; }
+  table.dbg-mini td { padding: 4px 8px; border-bottom: 1px dotted var(--rule); }
+  .dbg-logs {
+    display: grid; grid-template-columns: 1fr; gap: 16px;
+  }
+  .dbg-pre {
+    background: #0d0d0d; color: #e6e6e6;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 11.5px; line-height: 1.45;
+    padding: 10px 12px; border-radius: 4px;
+    max-height: 320px; overflow-y: auto; overflow-x: auto;
+    white-space: pre; margin: 0;
+  }
+  .dbg-pre .ln-err  { color: #ff8a7a; }
+  .dbg-pre .ln-warn { color: #ffd070; }
+  .dbg-pre .ln-info { color: #b8d4ff; }
+  .age-fresh { color: #2f7d2f; }
+  .age-stale { color: #b03030; font-weight: 600; }
+  .age-warn  { color: #c47b00; }
 </style>
 </head>
 <body>
@@ -378,6 +416,9 @@ INDEX_HTML = """<!doctype html>
     </button>
     <button data-tab="archive">Archive
       <span class="tab-count" id="tab-count-archive"></span>
+    </button>
+    <button data-tab="debug">Debug
+      <span class="tab-count" id="tab-count-debug"></span>
     </button>
   </nav>
 
@@ -586,6 +627,73 @@ INDEX_HTML = """<!doctype html>
       </tr></thead>
       <tbody id="appr-skip-archive-rows"></tbody>
     </table>
+  </section>
+
+  <section class="tab-pane" data-tab="debug">
+    <h2 style="margin-top:0">Pipeline debugger</h2>
+    <p class="muted" style="margin-top:-8px">
+      Live view of every pipeline stage. Refreshes every 3 s.
+      <span id="debug-queried-at" class="muted"></span>
+    </p>
+
+    <h2 style="margin-top:24px">Scheduled tasks</h2>
+    <table>
+      <thead><tr>
+        <th>Name</th><th>State</th><th>Last run</th>
+        <th>Last result</th><th>Next run</th>
+      </tr></thead>
+      <tbody id="debug-task-rows"></tbody>
+    </table>
+
+    <h2 style="margin-top:24px">Last LLM (claude) invocation</h2>
+    <div id="debug-claude" class="dbg-card">—</div>
+
+    <h2 style="margin-top:24px">Batch / result file freshness</h2>
+    <div class="dbg-grid">
+      <div>
+        <h3 class="dbg-h3">batches/ (inputs to LLM)</h3>
+        <table class="dbg-mini"><tbody id="debug-batches-rows"></tbody></table>
+      </div>
+      <div>
+        <h3 class="dbg-h3">results/ (LLM outputs)</h3>
+        <table class="dbg-mini"><tbody id="debug-results-rows"></tbody></table>
+      </div>
+    </div>
+
+    <h2 style="margin-top:24px">Most recent indexer inserts</h2>
+    <table>
+      <thead><tr>
+        <th>When</th><th>Tier</th><th class="num">Dist</th>
+        <th class="num">Ask</th><th>Section</th><th>Neighborhood</th>
+        <th>Title</th>
+      </tr></thead>
+      <tbody id="debug-recent-inserts"></tbody>
+    </table>
+
+    <h2 style="margin-top:24px">Most recent appraisal-DB writes</h2>
+    <table>
+      <thead><tr>
+        <th>When</th><th>Rec</th><th class="num">Ask</th>
+        <th class="num">Salvage</th><th>Summary</th>
+      </tr></thead>
+      <tbody id="debug-recent-appraisals"></tbody>
+    </table>
+
+    <h2 style="margin-top:24px">Live log tails</h2>
+    <div class="dbg-logs">
+      <div>
+        <h3 class="dbg-h3">watcher.log <span class="muted">(scraper)</span></h3>
+        <pre class="dbg-pre" id="debug-log-watcher"></pre>
+      </div>
+      <div>
+        <h3 class="dbg-h3">wrapper.log <span class="muted">(chain glue)</span></h3>
+        <pre class="dbg-pre" id="debug-log-wrapper"></pre>
+      </div>
+      <div>
+        <h3 class="dbg-h3">cycle.log <span class="muted">(appraiser)</span></h3>
+        <pre class="dbg-pre" id="debug-log-cycle"></pre>
+      </div>
+    </div>
   </section>
 
   <footer>
@@ -1117,6 +1225,161 @@ INDEX_HTML = """<!doctype html>
   refreshAppr();
   setInterval(refreshAppr, 5000);
 
+  // ---------- Debug tab ----------
+  // Polls /api/debug every 3 s and renders log tails, file freshness,
+  // task status, recent inserts/appraisals, and last LLM exit. Only
+  // polls when the tab is active so the dashboard isn't constantly
+  // running PowerShell + reading log files in the background.
+  let _debugPollHandle = null;
+
+  function ageClass(min) {
+    if (min == null) return '';
+    if (min < 10) return 'age-fresh';
+    if (min < 60) return 'age-warn';
+    return 'age-stale';
+  }
+  function fmtAgeMin(min) {
+    if (min == null) return '—';
+    if (min < 1) return Math.round(min * 60) + 's ago';
+    if (min < 60) return min.toFixed(1) + 'm ago';
+    if (min < 60 * 24) return (min / 60).toFixed(1) + 'h ago';
+    return (min / (60 * 24)).toFixed(1) + 'd ago';
+  }
+  function logLineClass(ln) {
+    const s = ln.toLowerCase();
+    if (s.includes('error') || s.includes('exit=1')
+        || s.includes('failed') || s.includes('exception')
+        || s.includes('hit your limit')) return 'ln-err';
+    if (s.includes('warn')) return 'ln-warn';
+    if (s.includes('info') || s.includes('cycle start')
+        || s.includes('cycle end') || s.includes('triggering')) return 'ln-info';
+    return '';
+  }
+  function renderLogTail(elId, lines) {
+    const el = document.getElementById(elId);
+    if (!el) return;
+    if (!lines || !lines.length) {
+      el.textContent = '(empty)';
+      return;
+    }
+    el.innerHTML = lines.map(ln => {
+      const cls = logLineClass(ln);
+      const safe = ln.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+                     .replace(/>/g, '&gt;');
+      return cls ? `<span class="${cls}">${safe}</span>` : safe;
+    }).join('\n');
+    // Keep view pinned to the latest line.
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function refreshDebug() {
+    try {
+      const r = await fetch('/api/debug');
+      if (!r.ok) return;
+      const d = await r.json();
+
+      document.getElementById('debug-queried-at').textContent =
+        '· queried ' + (d.queried_at || '');
+
+      // Tasks
+      const taskRows = (d.tasks || []).map(t => {
+        const stateClass = t.State === 'Running' ? 'ok'
+          : t.State === 'Disabled' ? 'fail' : '';
+        return `<tr>
+          <td><strong>${t.Name}</strong></td>
+          <td class="${stateClass}">${t.State}</td>
+          <td>${t.LastRun || '—'}</td>
+          <td>${t.LastResult || '—'}</td>
+          <td>${t.NextRun || '—'}</td>
+        </tr>`;
+      }).join('');
+      document.getElementById('debug-task-rows').innerHTML =
+        taskRows || '<tr><td colspan="5" class="muted">no scheduled tasks</td></tr>';
+
+      // Last claude invocation
+      const lc = d.last_claude_invocation || {};
+      const claudeEl = document.getElementById('debug-claude');
+      let cls = 'unknown';
+      if (lc.exit === 0) cls = 'ok';
+      else if (lc.exit !== null && lc.exit !== undefined) cls = 'fail';
+      claudeEl.className = 'dbg-card ' + cls;
+      const exitTxt = (lc.exit === null || lc.exit === undefined)
+        ? 'unknown' : 'exit=' + lc.exit;
+      claudeEl.innerHTML = `
+        <div><strong>${exitTxt}</strong> · ${lc.at || 'no record'}</div>
+        ${lc.message ? '<div style="margin-top:6px;color:var(--muted)">'
+          + lc.message.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          + '</div>' : ''}
+      `;
+
+      // Files
+      const fileRows = (files) => (files || []).map(f =>
+        `<tr>
+          <td><code>${f.name}</code></td>
+          <td class="num">${f.size.toLocaleString()} B</td>
+          <td class="${ageClass(f.age_minutes)}">${fmtAgeMin(f.age_minutes)}</td>
+        </tr>`
+      ).join('') || '<tr><td colspan="3" class="muted">(none)</td></tr>';
+      document.getElementById('debug-batches-rows').innerHTML =
+        fileRows(d.batches && d.batches.files);
+      document.getElementById('debug-results-rows').innerHTML =
+        fileRows(d.results && d.results.files);
+
+      // Recent inserts
+      document.getElementById('debug-recent-inserts').innerHTML =
+        (d.recent_inserts || []).map(r => {
+          const ts = r.first_seen_at ? r.first_seen_at.slice(11, 19) : '—';
+          const ask = r.ask_price == null ? '—'
+            : ('$' + r.ask_price + (r.price_uncertain ? '?' : ''));
+          const dist = r.distance_km == null ? '—'
+            : r.distance_km.toFixed(1) + ' km';
+          return `<tr>
+            <td>${ts}</td>
+            <td><span class="tier-pill tier-${r.tier || 'unknown'}">${r.tier || '?'}</span></td>
+            <td class="num">${dist}</td>
+            <td class="num">${ask}</td>
+            <td>${r.section || ''}</td>
+            <td>${(r.neighborhood || '').slice(0, 24)}</td>
+            <td>${(r.title || '').slice(0, 60)}</td>
+          </tr>`;
+        }).join('');
+
+      // Recent appraisals
+      document.getElementById('debug-recent-appraisals').innerHTML =
+        (d.recent_appraisals || []).map(r => {
+          const ts = r.run_at ? r.run_at.replace('T', ' ').slice(0, 19) : '—';
+          const recCls = r.recommendation === 'BUY' ? 'ok'
+            : r.recommendation === 'REJECTED' ? 'fail' : '';
+          return `<tr>
+            <td>${ts}</td>
+            <td class="${recCls}"><strong>${r.recommendation || '?'}</strong></td>
+            <td class="num">$${r.ask_price || 0}</td>
+            <td class="num">$${(r.salvage_realized || 0).toFixed(0)}</td>
+            <td>${(r.summary || '').slice(0, 110)}</td>
+          </tr>`;
+        }).join('');
+
+      // Log tails
+      renderLogTail('debug-log-watcher', d.logs && d.logs.watcher);
+      renderLogTail('debug-log-wrapper', d.logs && d.logs.wrapper);
+      renderLogTail('debug-log-cycle', d.logs && d.logs.appraiser_cycle);
+    } catch (e) {
+      console.error('debug refresh failed', e);
+    }
+  }
+
+  function startDebugPolling() {
+    if (_debugPollHandle) return;
+    refreshDebug();
+    _debugPollHandle = setInterval(refreshDebug, 3000);
+  }
+  function stopDebugPolling() {
+    if (_debugPollHandle) {
+      clearInterval(_debugPollHandle);
+      _debugPollHandle = null;
+    }
+  }
+
   // ---------- Tab switching ----------
   function activateTab(name) {
     const panes = document.querySelectorAll('.tab-pane');
@@ -1134,6 +1397,11 @@ INDEX_HTML = """<!doctype html>
       // Update hash without scrolling.
       history.replaceState(null, '', '#' + name);
     }
+    // Start the debug poller only when its tab is showing — otherwise
+    // we'd be running PowerShell + reading three log files every 3 s
+    // for nothing. The other tabs use lightweight polls already.
+    if (name === 'debug') startDebugPolling();
+    else stopDebugPolling();
   }
 
   // Default tab: URL hash if present, else port-based fallback (8766
@@ -1656,6 +1924,156 @@ def query_appraisals():
         src.close()
 
 
+def query_debug():
+    """Return live debug payload — log tails, file freshness, recent
+    pipeline events. Powers the Debug tab so the user can see what's
+    happening end-to-end without tailing logs in three terminals.
+
+    Everything here is best-effort: missing files / paths must NEVER
+    raise (debug panel must keep working even if part of the system is
+    broken — that's the whole point).
+    """
+    from datetime import datetime
+    out: dict = {"available": True, "errors": []}
+
+    def _safe_tail(path: str, n: int = 40) -> list:
+        try:
+            p = Path(path)
+            if not p.exists():
+                return [f"(no file at {path})"]
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
+                lines = f.readlines()
+            return [ln.rstrip("\n") for ln in lines[-n:]]
+        except Exception as e:
+            return [f"(error reading {path}: {e})"]
+
+    # 1. Log tails — three streams the user actually wants to see live.
+    log_root_local = Path(os.environ.get("LOCALAPPDATA", str(Path.home())))
+    out["logs"] = {
+        "watcher": _safe_tail(str(config.LOG_DIR / "watcher.log"), 40),
+        "wrapper": _safe_tail(
+            str(log_root_local / "cl_watcher" / "log" / "wrapper.log"), 40),
+        "appraiser_cycle": _safe_tail(
+            str(log_root_local / "cl_watcher" / "appraiser"
+                / "log" / "cycle.log"), 60),
+    }
+
+    # 2. Batch / result file freshness. Stale results/ + fresh batches/
+    # is the diagnostic signature of "LLM call is failing silently."
+    appraiser_root = Path("C:/Users/User/OneDrive/Desktop/Claude Project"
+                          "/appraiser")
+    def _summarize_dir(d: Path) -> dict:
+        if not d.exists():
+            return {"path": str(d), "exists": False, "files": []}
+        files = []
+        for f in sorted(d.glob("batch_*.json"),
+                        key=lambda x: x.stat().st_mtime, reverse=True):
+            mt = datetime.utcfromtimestamp(f.stat().st_mtime)
+            age_min = (datetime.utcnow() - mt).total_seconds() / 60
+            files.append({"name": f.name, "size": f.stat().st_size,
+                          "mtime": mt.isoformat() + "Z",
+                          "age_minutes": round(age_min, 1)})
+        return {"path": str(d), "exists": True, "files": files[:10]}
+    out["batches"] = _summarize_dir(appraiser_root / "batches")
+    out["results"] = _summarize_dir(appraiser_root / "results")
+
+    # 3. Last claude invocation outcome — parse cycle.log for the most
+    # recent `claude exit=` line and the line right after it. That tells
+    # the user "did the LLM actually run, or did it fail with quota /
+    # permissions / network?"
+    last_claude = {"exit": None, "message": None, "at": None}
+    try:
+        cycle_lines = out["logs"]["appraiser_cycle"]
+        for i in range(len(cycle_lines) - 1, -1, -1):
+            ln = cycle_lines[i]
+            if "claude exit=" in ln or "claude:" in ln:
+                last_claude["at"] = ln.split(" claude")[0] \
+                    if " claude" in ln else None
+                if "claude exit=" in ln:
+                    try:
+                        last_claude["exit"] = int(
+                            ln.split("claude exit=")[1].split(";")[0])
+                    except Exception:
+                        pass
+                # Capture the next non-empty line as the message
+                for j in range(i + 1, min(i + 4, len(cycle_lines))):
+                    nxt = cycle_lines[j].strip()
+                    if nxt and not nxt.startswith("==="):
+                        last_claude["message"] = nxt[:300]
+                        break
+                break
+    except Exception as e:
+        out["errors"].append(f"claude exit parse: {e}")
+    out["last_claude_invocation"] = last_claude
+
+    # 4. Recent indexer inserts — last 10 rows with tier / distance / ask
+    # so the user can see the scrape-time decisions live.
+    try:
+        src = sqlite3.connect(f"file:{config.DB_PATH}?mode=ro",
+                              uri=True, timeout=5)
+        src.row_factory = sqlite3.Row
+        rows = src.execute(
+            "SELECT first_seen_at, title, tier, distance_km, ask_price, "
+            "       price_uncertain, neighborhood, section "
+            "FROM seen_listings ORDER BY first_seen_at DESC LIMIT 12"
+        ).fetchall()
+        out["recent_inserts"] = [dict(r) for r in rows]
+        src.close()
+    except Exception as e:
+        out["recent_inserts"] = []
+        out["errors"].append(f"recent_inserts: {e}")
+
+    # 5. Recent appraisal-DB writes — last 10 with run_at / recommendation
+    try:
+        appr = sqlite3.connect(f"file:{APPRAISAL_DB_PATH}?mode=ro",
+                               uri=True, timeout=5)
+        appr.row_factory = sqlite3.Row
+        rows = appr.execute(
+            "SELECT run_at, rss_id, recommendation, ask_price, "
+            "       salvage_realized, summary "
+            "FROM appraisal ORDER BY run_at DESC LIMIT 12"
+        ).fetchall()
+        out["recent_appraisals"] = []
+        for r in rows:
+            d = dict(r)
+            # Trim summary to one line for compact display
+            s = (d.get("summary") or "").splitlines()[0][:140]
+            d["summary"] = s
+            out["recent_appraisals"].append(d)
+        appr.close()
+    except Exception as e:
+        out["recent_appraisals"] = []
+        out["errors"].append(f"recent_appraisals: {e}")
+
+    # 6. Scheduled-task status (via PowerShell). Fire-and-forget; if it
+    # fails we silently degrade. Useful so the user can see Disabled vs
+    # Ready vs Running without leaving the dashboard.
+    out["tasks"] = []
+    try:
+        import subprocess
+        ps = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "Get-ScheduledTask -TaskName 'ClWatcher','ClAppraiser' "
+             "-ErrorAction SilentlyContinue | ForEach-Object { "
+             "$i = Get-ScheduledTaskInfo $_; "
+             "[PSCustomObject]@{Name=$_.TaskName; State=$_.State.ToString(); "
+             "LastRun=$i.LastRunTime.ToString('o'); "
+             "LastResult=('0x{0:X}' -f $i.LastTaskResult); "
+             "NextRun=$i.NextRunTime.ToString('o') } } | "
+             "ConvertTo-Json -Compress"],
+            capture_output=True, text=True, timeout=5)
+        if ps.returncode == 0 and ps.stdout.strip():
+            data = json.loads(ps.stdout)
+            if isinstance(data, dict):
+                data = [data]
+            out["tasks"] = data
+    except Exception as e:
+        out["errors"].append(f"task status: {e}")
+
+    out["queried_at"] = datetime.utcnow().isoformat() + "Z"
+    return out
+
+
 class Handler(BaseHTTPRequestHandler):
     def log_message(self, format, *args):
         pass  # silence default access log
@@ -1681,6 +2099,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/appraisals":
             body = json.dumps(query_appraisals()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+        if path == "/api/debug":
+            body = json.dumps(query_debug()).encode("utf-8")
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Cache-Control", "no-store")
