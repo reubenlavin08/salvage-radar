@@ -136,6 +136,25 @@ def main():
     drop_path = BATCH_DIR / "_dropped.json"
     drop_path.write_text(json.dumps(dropped, indent=2), encoding="utf-8")
 
+    # Persist prefilter drops as REJECTED rows in appraisal.db so the
+    # dashboard can distinguish "deliberately filtered out" from "still
+    # pending appraisal". Without this, a Brand-New-Goggles listing 25 km
+    # away would look like it's still in the queue forever.
+    id_to_listing = {ll.rss_id: ll for ll in listings}
+    appr = db_mod.open_appraisal(config.APPRAISAL_DB_PATH)
+    try:
+        n_rejections_written = 0
+        for d in dropped:
+            ll = id_to_listing.get(d["rss_id"])
+            ask = ll.ask_price if ll else None
+            db_mod.upsert_rejection(appr, d["rss_id"], ask, d["reason"])
+            n_rejections_written += 1
+        appr.commit()
+    finally:
+        appr.close()
+    log.info("Wrote %d REJECTED rows to appraisal.db",
+             n_rejections_written)
+
     # Chunk into batches
     n = args.batch_size
     batches = [kept[i:i + n] for i in range(0, len(kept), n)]

@@ -198,6 +198,32 @@ def upsert_appraisal(conn: sqlite3.Connection, a: Appraisal) -> None:
     conn.commit()
 
 
+def upsert_rejection(
+    conn: sqlite3.Connection,
+    rss_id: str,
+    ask_price: Optional[int],
+    reason: str,
+) -> None:
+    """Write a REJECTED row for a listing the prefilter dropped (too far,
+    too expensive, buyer post, accessory-only, etc.) so the dashboard can
+    distinguish "deliberately filtered out" from "still pending".
+
+    INSERT OR IGNORE: if the row already has any appraisal (LLM or earlier
+    rejection), this is a no-op. Re-running prepare.py is therefore safe.
+    """
+    conn.execute(
+        """INSERT OR IGNORE INTO appraisal (
+            rss_id, run_at, ask_price, salvage_low, salvage_high,
+            salvage_realized, ratio, recommendation, confidence,
+            summary, line_items_json, raw_json
+           ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (rss_id, datetime.utcnow().isoformat(), ask_price,
+         0.0, 0.0, 0.0, 0.0,
+         "REJECTED", "prefilter", f"Prefilter: {reason}",
+         "[]", "{}"),
+    )
+
+
 def fetch_triage_passers(conn: sqlite3.Connection) -> Iterable[str]:
     """rss_ids that triage marked worth_deep=1, missing from extraction table."""
     rows = conn.execute(

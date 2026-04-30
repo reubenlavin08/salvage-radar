@@ -152,6 +152,7 @@ INDEX_HTML = """<!doctype html>
   .reco-BUY    { background: var(--B); }
   .reco-MAYBE  { background: var(--D); }
   .reco-SKIP   { background: var(--X); }
+  .reco-REJECTED { background: var(--muted); }
   .conf-pill { display: inline-block; padding: 1px 6px; border-radius: 3px;
                font-size: 10px; color: var(--muted); border: 1px solid var(--border);
                text-transform: uppercase; letter-spacing: 0.05em; }
@@ -193,6 +194,25 @@ INDEX_HTML = """<!doctype html>
                   text-transform: uppercase; }
   .window-count { font-size: 12px; font-weight: 400; color: var(--muted);
                   margin-left: 8px; font-variant-numeric: tabular-nums; }
+  /* Scraper heartbeat — shown at the top of the Indexed tab. Status pill
+     turns from green ("alive") to amber ("slow") to red ("stale") based
+     on how long ago the last row landed. */
+  .heartbeat { display: flex; align-items: center; gap: 14px;
+               padding: 10px 14px; margin: 0 0 16px;
+               border: 1px solid var(--border); border-radius: 6px;
+               background: var(--row-hover); font-size: 13px;
+               flex-wrap: wrap; }
+  .heartbeat-line { font-variant-numeric: tabular-nums; }
+  .heartbeat-line.muted { color: var(--muted); }
+  .heartbeat-pill { display: inline-block; padding: 3px 10px;
+                    border-radius: 4px; font-size: 11px; font-weight: 700;
+                    color: white; letter-spacing: 0.05em;
+                    text-transform: uppercase; }
+  .hb-alive { background: var(--B); }
+  .hb-slow  { background: var(--D); }
+  .hb-stale { background: var(--X); }
+  .hb-unknown { background: var(--muted); }
+
   /* Tabs — three views: indexed area (cl_watcher live scan), appraised
      (last 24 h BUY/MAYBE/SKIP), and archive (older). The active tab is
      decided by URL hash if present, else by port (8766 → appraised,
@@ -238,6 +258,20 @@ INDEX_HTML = """<!doctype html>
   </nav>
 
   <section class="tab-pane cl-section" data-tab="indexed">
+    <!-- Scraper heartbeat — shows whether cl_watcher is up-to-date even
+         when nothing matches the user's specs. -->
+    <div class="heartbeat" id="heartbeat">
+      <span class="heartbeat-pill" id="hb-pill">—</span>
+      <span class="heartbeat-line">
+        Last insert: <strong id="hb-last">—</strong>
+      </span>
+      <span class="heartbeat-line muted">
+        <span id="hb-15m">—</span> in 15 min ·
+        <span id="hb-1h">—</span> in 1 h ·
+        <span id="hb-24h">—</span> in 24 h
+      </span>
+    </div>
+
     <div class="phase-block">
       <span class="phase-label" id="phase">—</span>
       <span class="phase-detail" id="phase-detail"></span>
@@ -299,6 +333,21 @@ INDEX_HTML = """<!doctype html>
 
   <section class="tab-pane" data-tab="appraised" id="appraiser-section">
     <h2 id="appraiser-heading" style="margin-top:0">Appraiser — AI salvage valuation</h2>
+
+    <!-- Appraiser heartbeat — shows whether the cycle ran recently and
+         what made the cut (BUY/MAYBE) vs. what didn't (SKIP/REJECTED). -->
+    <div class="heartbeat" id="appr-heartbeat">
+      <span class="heartbeat-pill" id="appr-hb-pill">—</span>
+      <span class="heartbeat-line">
+        Last cycle: <strong id="appr-hb-last">—</strong>
+      </span>
+      <span class="heartbeat-line muted">
+        <span id="appr-hb-15m">—</span> in 15 min ·
+        <span id="appr-hb-1h">—</span> in 1 h ·
+        <span id="appr-hb-24h">—</span> in 24 h
+      </span>
+    </div>
+
     <div class="appraisal-banner" id="appraiser-banner">
       <span class="label">Status:</span>
       <span id="appr-status" class="meta">loading…</span>
@@ -553,7 +602,36 @@ INDEX_HTML = """<!doctype html>
       renderChips(d.breakdown, d.matches);
       renderTop(d.top);
       renderRecent(d.recent);
+      renderHeartbeat(d);
     } catch(e) { /* ignore transient errors */ }
+  }
+
+  function fmtAge(secs) {
+    if (secs == null) return '—';
+    if (secs < 60)   return Math.round(secs) + ' s ago';
+    if (secs < 3600) return Math.round(secs / 60) + ' min ago';
+    if (secs < 86400) return (secs / 3600).toFixed(1) + ' h ago';
+    return (secs / 86400).toFixed(1) + ' d ago';
+  }
+  function renderHeartbeat(d) {
+    const secs = d.seconds_since_last_insert;
+    const pill = document.getElementById('hb-pill');
+    let label, cls;
+    if (secs == null) {
+      label = 'unknown'; cls = 'hb-unknown';
+    } else if (secs < 30 * 60) {
+      label = 'alive'; cls = 'hb-alive';
+    } else if (secs < 2 * 3600) {
+      label = 'slow'; cls = 'hb-slow';
+    } else {
+      label = 'stale'; cls = 'hb-stale';
+    }
+    pill.textContent = label;
+    pill.className = 'heartbeat-pill ' + cls;
+    document.getElementById('hb-last').textContent = fmtAge(secs);
+    document.getElementById('hb-15m').textContent = (d.inserts_15m ?? '—').toLocaleString();
+    document.getElementById('hb-1h').textContent = (d.inserts_1h ?? '—').toLocaleString();
+    document.getElementById('hb-24h').textContent = (d.inserts_24h ?? '—').toLocaleString();
   }
   refresh();
   setInterval(refresh, 3000);
@@ -689,20 +767,25 @@ INDEX_HTML = """<!doctype html>
       }
       const recs = d.by_recommendation || {};
       const recsR = d.by_recommendation_recent || {};
-      const buy = recs.BUY || 0, maybe = recs.MAYBE || 0, skip = recs.SKIP || 0;
-      const buyR = recsR.BUY || 0, maybeR = recsR.MAYBE || 0, skipR = recsR.SKIP || 0;
+      const buy = recs.BUY || 0, maybe = recs.MAYBE || 0,
+            skip = recs.SKIP || 0, rej = recs.REJECTED || 0;
+      const buyR = recsR.BUY || 0, maybeR = recsR.MAYBE || 0,
+            skipR = recsR.SKIP || 0, rejR = recsR.REJECTED || 0;
       const lr = d.last_run ? new Date(d.last_run).toLocaleString() : '—';
       status.innerHTML = `
         <strong>${d.total_recent || 0}</strong> in last 24 h ·
         <span class="reco-pill reco-BUY">BUY ${buyR}</span>
         <span class="reco-pill reco-MAYBE">MAYBE ${maybeR}</span>
         <span class="reco-pill reco-SKIP">SKIP ${skipR}</span>
+        <span class="reco-pill reco-REJECTED">REJECTED ${rejR}</span>
         · all-time:
         <span class="reco-pill reco-BUY">BUY ${buy}</span>
         <span class="reco-pill reco-MAYBE">MAYBE ${maybe}</span>
         <span class="reco-pill reco-SKIP">SKIP ${skip}</span>
+        <span class="reco-pill reco-REJECTED">REJECTED ${rej}</span>
         · last run: <span class="meta">${lr}</span>
       `;
+      renderApprHeartbeat(d);
       const topR = d.top_recent || [];
       const topA = d.top_archive || [];
       const skipRR = d.skipped_recent || [];
@@ -722,6 +805,29 @@ INDEX_HTML = """<!doctype html>
       setText('tab-count-archive', archiveCount > 0 ? `${archiveCount}` : '');
       renderApprLive(d.live || {});
     } catch (e) { /* ignore */ }
+  }
+
+  function renderApprHeartbeat(d) {
+    const secs = d.seconds_since_last_run;
+    const pill = document.getElementById('appr-hb-pill');
+    let label, cls;
+    // The appraiser is on a 15-min cron; "stale" thresholds are looser
+    // than the scraper since fewer cycles can produce zero-work runs.
+    if (secs == null) {
+      label = 'no runs'; cls = 'hb-unknown';
+    } else if (secs < 60 * 60) {
+      label = 'alive'; cls = 'hb-alive';
+    } else if (secs < 6 * 3600) {
+      label = 'slow'; cls = 'hb-slow';
+    } else {
+      label = 'stale'; cls = 'hb-stale';
+    }
+    pill.textContent = label;
+    pill.className = 'heartbeat-pill ' + cls;
+    document.getElementById('appr-hb-last').textContent = fmtAge(secs);
+    document.getElementById('appr-hb-15m').textContent = (d.appraised_15m ?? '—').toLocaleString();
+    document.getElementById('appr-hb-1h').textContent = (d.appraised_1h ?? '—').toLocaleString();
+    document.getElementById('appr-hb-24h').textContent = (d.appraised_24h ?? '—').toLocaleString();
   }
 
   function renderApprLive(live) {
@@ -888,6 +994,22 @@ def query_state():
         except Exception:
             recent_insert_secs = None
 
+        # Heartbeat counts — how many rows landed in each rolling window.
+        # Used by the Indexed tab to show the user that scraping is still
+        # alive even when nothing matches their specs.
+        inserts_15m = conn.execute(
+            "SELECT COUNT(*) FROM seen_listings "
+            "WHERE first_seen_at >= datetime('now','-15 minutes')"
+        ).fetchone()[0]
+        inserts_1h = conn.execute(
+            "SELECT COUNT(*) FROM seen_listings "
+            "WHERE first_seen_at >= datetime('now','-1 hour')"
+        ).fetchone()[0]
+        inserts_24h = conn.execute(
+            "SELECT COUNT(*) FROM seen_listings "
+            "WHERE first_seen_at >= datetime('now','-1 day')"
+        ).fetchone()[0]
+
         # Phase detection — prefer explicit meta override
         if phase_from_meta and recent_insert_secs is not None and recent_insert_secs < 90:
             phase = phase_from_meta
@@ -938,6 +1060,11 @@ def query_state():
         "top": top,
         "recent": recent,
         "db_path": str(db),
+        "last_insert_at": last_insert,
+        "seconds_since_last_insert": recent_insert_secs,
+        "inserts_15m": inserts_15m,
+        "inserts_1h": inserts_1h,
+        "inserts_24h": inserts_24h,
     }
 
 
@@ -1031,6 +1158,27 @@ def query_appraisals():
 
         last_run = conn.execute(
             "SELECT MAX(run_at) FROM appraisal").fetchone()[0]
+
+        # Appraiser heartbeat — same shape as the scraper heartbeat in
+        # query_state. Lets the dashboard show "alive / slow / stale"
+        # for the appraisal pipeline, broken down by what made the cut
+        # (BUY/MAYBE) vs. what didn't (SKIP/REJECTED).
+        try:
+            from datetime import datetime as _dt
+            last_run_dt = _dt.fromisoformat(last_run) if last_run else None
+            secs_since_appr = (_dt.utcnow() - last_run_dt).total_seconds() \
+                if last_run_dt else None
+        except Exception:
+            secs_since_appr = None
+        appr_15m = conn.execute(
+            "SELECT COUNT(*) FROM appraisal "
+            "WHERE run_at >= datetime('now','-15 minutes')").fetchone()[0]
+        appr_1h = conn.execute(
+            "SELECT COUNT(*) FROM appraisal "
+            "WHERE run_at >= datetime('now','-1 hour')").fetchone()[0]
+        appr_24h = conn.execute(
+            "SELECT COUNT(*) FROM appraisal "
+            "WHERE run_at >= datetime('now','-1 day')").fetchone()[0]
 
         # Top by ratio (BUY/MAYBE), split into "last 24h" and "archive"
         # so the dashboard surfaces what was just appraised before older
@@ -1140,6 +1288,10 @@ def query_appraisals():
             "available": True,
             "db_path": str(APPRAISAL_DB_PATH),
             "last_run": last_run,
+            "seconds_since_last_run": secs_since_appr,
+            "appraised_15m": appr_15m,
+            "appraised_1h": appr_1h,
+            "appraised_24h": appr_24h,
             "total": total,
             "total_recent": total_recent,
             "by_recommendation": recs,
