@@ -32,43 +32,64 @@ INDEX_HTML = """<!doctype html>
 <meta charset="utf-8">
 <title>cl_watcher</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap">
 <style>
+  /* Editorial / heritage palette inspired by kalso.vaangroup.com.
+     Warm cream background, charcoal-brown ink, no pure black, no
+     gradients, no glow. Borders and dividers carry weight; type
+     does the visual heavy lifting. */
   :root {
-    --bg: #ffffff;
-    --fg: #0a0a0a;
-    --muted: #6b7280;
-    --border: #e5e7eb;
-    --row-hover: #f9fafb;
-    --A: #2563eb;
-    --B: #059669;
-    --C: #475569;
-    --D: #d97706;
-    --R: #7c3aed;
-    --X: #9ca3af;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0a0a0a;
-      --fg: #f5f5f5;
-      --muted: #9ca3af;
-      --border: #1f2937;
-      --row-hover: #111827;
-    }
+    --bg: #faf8f5;             /* warm cream */
+    --paper: #ffffff;          /* slightly brighter cards */
+    --fg: #1f1d1e;             /* charcoal-brown ink (kalso #1f1d1e x46) */
+    --muted: #8a8580;           /* warm gray for secondary text */
+    --muted-soft: #b5b1ac;     /* even quieter for backgrounded labels */
+    --border: #ddd9d3;         /* subtle warm divider */
+    --border-strong: #1f1d1e;  /* strong rules under headings */
+    --row-hover: #f1ede7;      /* warm hover shade */
+    /* Functional accents — kept for distance bands and recommendation
+       pills, but pulled toward the earthy palette. */
+    --A: #2a3f5f;              /* close: deep ink-blue */
+    --B: #3d6043;              /* worth-buying: forest green */
+    --C: #6b6358;              /* mid: olive-stone */
+    --D: #a16022;              /* further: burnt sienna */
+    --R: #5e3b6e;              /* rejected accent (used sparingly) */
+    --X: #b5a89d;              /* deprioritized: warm sand */
   }
   * { box-sizing: border-box; }
   html, body {
     margin: 0; padding: 0;
     background: var(--bg); color: var(--fg);
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI",
                  "Helvetica Neue", Arial, sans-serif;
-    font-size: 14px; line-height: 1.5;
+    font-size: 15px; line-height: 1.55;
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
-  .wrap { max-width: 1200px; margin: 0 auto; padding: 32px 24px 64px; }
+  .wrap { max-width: 1240px; margin: 0 auto; padding: 56px 32px 96px; }
   header { display: flex; justify-content: space-between; align-items: baseline;
-           margin-bottom: 8px; }
-  h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
-  .subtitle { color: var(--muted); font-size: 12px; }
-  .timestamp { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+           padding-bottom: 28px; margin-bottom: 0;
+           border-bottom: 1px solid var(--border-strong); }
+  h1 { font-family: 'Fraunces', Georgia, serif;
+       font-optical-sizing: auto;
+       font-weight: 600; font-size: 42px; line-height: 1.05;
+       margin: 0; letter-spacing: -0.02em;
+       font-variation-settings: "opsz" 144, "SOFT" 30; }
+  h2 { font-family: 'Fraunces', Georgia, serif;
+       font-weight: 600; font-size: 24px; line-height: 1.2;
+       margin: 40px 0 16px; letter-spacing: -0.01em;
+       font-variation-settings: "opsz" 48; }
+  h3 { font-family: 'Fraunces', Georgia, serif;
+       font-weight: 600; font-size: 18px; margin: 24px 0 8px; }
+  .subtitle { color: var(--muted); font-size: 13px;
+              font-style: italic; font-family: 'Fraunces', Georgia, serif; }
+  .timestamp { color: var(--muted); font-size: 12px;
+               font-variant-numeric: tabular-nums;
+               text-transform: uppercase; letter-spacing: 0.12em; }
 
   .progress-block { margin: 24px 0; }
   .progress-meta { display: flex; justify-content: space-between;
@@ -78,31 +99,40 @@ INDEX_HTML = """<!doctype html>
                overflow: hidden; }
   .bar-fill { height: 100%; background: var(--fg); transition: width 400ms ease; }
   .bar-secondary { background: var(--A); opacity: 0.7; }
-  .phase-block { display: flex; align-items: center; gap: 12px;
-                 margin: 16px 0 8px; padding: 8px 12px;
-                 background: var(--row-hover); border-radius: 6px;
-                 border: 1px solid var(--border); }
-  .phase-label { font-weight: 600; font-size: 13px; }
+  .phase-block { display: flex; align-items: center; gap: 16px;
+                 margin: 24px 0 12px; padding: 12px 0;
+                 border-top: 1px solid var(--border);
+                 border-bottom: 1px solid var(--border); }
+  .phase-label { font-weight: 600; font-size: 13px;
+                 text-transform: uppercase; letter-spacing: 0.12em; }
   .phase-label.active::before { content: "● "; color: var(--B); animation: pulse 1.4s ease infinite; }
   .phase-label.idle::before { content: "○ "; color: var(--muted); }
   .phase-detail { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
   @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
   .muted { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
-  details.body-detail { margin-top: 6px; }
-  details.body-detail summary { cursor: pointer; color: var(--muted); font-size: 11px; }
-  details.body-detail .body-text { margin-top: 4px; padding: 8px;
-                                    background: var(--row-hover);
-                                    border-left: 2px solid var(--border);
-                                    font-size: 12px; color: var(--muted);
+  details.body-detail { margin-top: 8px; }
+  details.body-detail summary { cursor: pointer; color: var(--muted);
+                                font-size: 11px; text-transform: uppercase;
+                                letter-spacing: 0.1em; }
+  details.body-detail summary:hover { color: var(--fg); }
+  details.body-detail .body-text { margin-top: 8px; padding: 12px 16px;
+                                    background: var(--paper);
+                                    border-left: 3px solid var(--fg);
+                                    font-size: 13px; color: var(--muted);
                                     white-space: pre-wrap;
-                                    max-height: 240px; overflow: auto; }
+                                    max-height: 260px; overflow: auto;
+                                    font-family: 'Fraunces', Georgia, serif;
+                                    line-height: 1.6;
+                                    font-variation-settings: "opsz" 14; }
 
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 16px 0 32px; }
-  .chip { display: inline-flex; align-items: center; gap: 6px;
-          padding: 4px 10px; border: 1px solid var(--border);
-          border-radius: 999px; font-size: 12px;
-          font-variant-numeric: tabular-nums; }
-  .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 36px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px;
+          padding: 6px 12px; border: 1px solid var(--border);
+          border-radius: 0; font-size: 12px;
+          font-variant-numeric: tabular-nums;
+          background: var(--paper);
+          text-transform: uppercase; letter-spacing: 0.08em; }
+  .dot { width: 6px; height: 6px; border-radius: 0; display: inline-block; }
   .dot-A { background: var(--A); }
   .dot-B { background: var(--B); }
   .dot-C { background: var(--C); }
@@ -111,23 +141,25 @@ INDEX_HTML = """<!doctype html>
   .dot-X { background: var(--X); }
   .chip .match { color: var(--muted); }
 
-  h2 { font-size: 13px; font-weight: 600; margin: 32px 0 12px;
-       text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); }
-
-  table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  thead th { text-align: left; font-weight: 500; color: var(--muted);
-             font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
-             padding: 8px 12px; border-bottom: 1px solid var(--border); }
-  tbody td { padding: 10px 12px; border-bottom: 1px solid var(--border);
+  table { width: 100%; border-collapse: collapse; font-size: 14px;
+          border-top: 1px solid var(--border-strong); }
+  thead th { text-align: left; font-weight: 600; color: var(--fg);
+             font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+             padding: 14px 14px;
+             border-bottom: 1px solid var(--border-strong); }
+  tbody td { padding: 14px 14px; border-bottom: 1px solid var(--border);
              vertical-align: top; }
   tbody tr:hover { background: var(--row-hover); }
   td.num { font-variant-numeric: tabular-nums; text-align: right;
            white-space: nowrap; }
-  td.title a { color: var(--fg); text-decoration: none; }
-  td.title a:hover { text-decoration: underline; }
-  .tier-pill { display: inline-block; padding: 1px 7px; border-radius: 4px;
-               font-size: 11px; font-weight: 500; color: white;
-               font-variant-numeric: tabular-nums; }
+  td.title a, td a { color: var(--fg); text-decoration: none;
+                     border-bottom: 1px solid var(--border-strong);
+                     padding-bottom: 1px; }
+  td.title a:hover, td a:hover { background: var(--fg); color: var(--bg); }
+  .tier-pill { display: inline-block; padding: 3px 8px; border-radius: 0;
+               font-size: 10px; font-weight: 600; color: var(--bg);
+               font-variant-numeric: tabular-nums;
+               text-transform: uppercase; letter-spacing: 0.08em; }
   .tier-A { background: var(--A); }
   .tier-B { background: var(--B); }
   .tier-C { background: var(--C); }
@@ -137,35 +169,47 @@ INDEX_HTML = """<!doctype html>
   .tier-fetch_failed, .tier-unknown { background: var(--X); opacity: 0.6; }
   .geo-mark { color: var(--muted); font-size: 11px; margin-left: 4px; }
   .price-uncertain { color: var(--D); }
-  .empty { color: var(--muted); padding: 16px 12px; font-style: italic; }
-  footer { margin-top: 48px; color: var(--muted); font-size: 11px; }
+  .empty { color: var(--muted); padding: 24px 14px; font-style: italic;
+           font-family: 'Fraunces', Georgia, serif; }
+  footer { margin-top: 64px; padding-top: 24px;
+           border-top: 1px solid var(--border);
+           color: var(--muted); font-size: 11px;
+           text-transform: uppercase; letter-spacing: 0.12em; }
 
   /* Appraiser section */
-  .appraisal-banner { display: flex; align-items: center; gap: 12px;
-                      padding: 10px 14px; border: 1px solid var(--border);
-                      border-radius: 6px; background: var(--row-hover);
-                      margin: 16px 0 8px; font-size: 13px; flex-wrap: wrap; }
-  .appraisal-banner .label { font-weight: 600; }
-  .appraisal-banner .meta { color: var(--muted); font-variant-numeric: tabular-nums; }
-  .reco-pill { display: inline-block; padding: 2px 8px; border-radius: 4px;
-               font-size: 11px; font-weight: 600; color: white;
-               letter-spacing: 0.04em; }
+  .appraisal-banner { display: flex; align-items: center; gap: 16px;
+                      padding: 16px 0; border-top: 1px solid var(--border);
+                      border-bottom: 1px solid var(--border);
+                      margin: 16px 0 8px; font-size: 14px; flex-wrap: wrap; }
+  .appraisal-banner .label { font-weight: 600;
+                              text-transform: uppercase;
+                              letter-spacing: 0.12em; font-size: 11px; }
+  .appraisal-banner .meta { color: var(--fg); font-variant-numeric: tabular-nums; }
+  .reco-pill { display: inline-block; padding: 3px 9px; border-radius: 0;
+               font-size: 10px; font-weight: 600; color: var(--bg);
+               text-transform: uppercase; letter-spacing: 0.1em; }
   .reco-BUY    { background: var(--B); }
   .reco-MAYBE  { background: var(--D); }
-  .reco-SKIP   { background: var(--X); }
-  .reco-REJECTED { background: var(--muted); }
-  .conf-pill { display: inline-block; padding: 1px 6px; border-radius: 3px;
-               font-size: 10px; color: var(--muted); border: 1px solid var(--border);
-               text-transform: uppercase; letter-spacing: 0.05em; }
-  .ratio-cell { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .reco-SKIP   { background: var(--C); }
+  .reco-REJECTED { background: var(--X); }
+  .conf-pill { display: inline-block; padding: 2px 7px; border-radius: 0;
+               font-size: 10px; color: var(--muted);
+               border: 1px solid var(--border);
+               text-transform: uppercase; letter-spacing: 0.1em;
+               background: var(--paper); }
+  .ratio-cell { font-weight: 700; font-variant-numeric: tabular-nums;
+                font-family: 'Fraunces', Georgia, serif;
+                font-variation-settings: "opsz" 24; }
   .ratio-good { color: var(--B); }
   .ratio-meh  { color: var(--D); }
-  .ratio-bad  { color: var(--X); }
-  .summary-cell { color: var(--muted); font-size: 12px; max-width: 460px;
-                  white-space: pre-wrap; }
-  /* Make distance the visual anchor of each row — large, bold, color-
-     coded by tier band. */
-  .dist-cell { font-weight: 700; font-size: 15px;
+  .ratio-bad  { color: var(--muted); }
+  .summary-cell { color: var(--muted); font-size: 13px; max-width: 480px;
+                  white-space: pre-wrap; line-height: 1.5; }
+  /* Make distance the visual anchor of each row — set in display serif
+     so it reads like an editorial pull-stat. */
+  .dist-cell { font-weight: 700; font-size: 18px;
+               font-family: 'Fraunces', Georgia, serif;
+               font-variation-settings: "opsz" 48;
                font-variant-numeric: tabular-nums; white-space: nowrap; }
   .dist-A { color: var(--A); }      /* <= 2.5 km, very close */
   .dist-B { color: var(--B); }      /* <= 4.5 km */
@@ -173,21 +217,8 @@ INDEX_HTML = """<!doctype html>
   .dist-D { color: var(--D); }      /* <= 9 km */
   .dist-far { color: var(--X); }    /* > 9 km, faded */
   .dist-unknown { color: var(--muted); font-weight: 400; font-style: italic; }
-  /* All anchors in the appraiser section use the foreground color so
-     they're readable on dark backgrounds (default browser blue is too
-     dark against #0a0a0a). Hover gets an underline. */
-  #appraiser-section a,
-  #appr-top-rows a,
-  #appr-skip-rows a,
-  #appr-live-rows a {
-    color: var(--fg);
-    text-decoration: none;
-    border-bottom: 1px dotted var(--muted);
-  }
-  #appraiser-section a:hover,
-  #appr-top-rows a:hover,
-  #appr-skip-rows a:hover,
-  #appr-live-rows a:hover { border-bottom-style: solid; }
+  /* Anchors inside the appraiser section inherit the editorial styling
+     of td a above (ink-rule underline, invert on hover). */
 
   /* "Recent vs. archive" headings + collapsible archive blocks. */
   .window-label { font-size: 11px; font-weight: 400; color: var(--muted);
@@ -195,53 +226,56 @@ INDEX_HTML = """<!doctype html>
                   text-transform: uppercase; }
   .window-count { font-size: 12px; font-weight: 400; color: var(--muted);
                   margin-left: 8px; font-variant-numeric: tabular-nums; }
-  /* "Times" / "Posted" column cells — keep them compact and muted so
-     the more actionable Rec/Distance columns stay visually dominant.
-     The two-line stack (posted vs. appraised) uses .t-line + .t-label. */
+  /* "Times" / "Posted" column cells — compact, muted, monospaced
+     so they read as data rather than competing with the title. The
+     two-line stack uses .t-line + .t-label. */
   .posted-cell { color: var(--muted); font-size: 12px; white-space: nowrap;
                  font-variant-numeric: tabular-nums; }
-  .t-line { line-height: 1.4; }
-  .t-label { color: var(--muted); opacity: 0.7;
-             text-transform: uppercase; font-size: 10px;
-             letter-spacing: 0.05em; margin-right: 4px; }
+  .t-line { line-height: 1.5; }
+  .t-label { color: var(--muted-soft);
+             text-transform: uppercase; font-size: 9px;
+             letter-spacing: 0.14em; margin-right: 6px; font-weight: 600; }
 
-  /* Scraper heartbeat — shown at the top of the Indexed tab. Status pill
-     turns from green ("alive") to amber ("slow") to red ("stale") based
-     on how long ago the last row landed. */
-  .heartbeat { display: flex; align-items: center; gap: 14px;
-               padding: 10px 14px; margin: 0 0 16px;
-               border: 1px solid var(--border); border-radius: 6px;
-               background: var(--row-hover); font-size: 13px;
-               flex-wrap: wrap; }
-  .heartbeat-line { font-variant-numeric: tabular-nums; }
+  /* Heartbeats — flat editorial banners, no rounded corners or fills.
+     Status pill becomes an inline marker. */
+  .heartbeat { display: flex; align-items: center; gap: 20px;
+               padding: 16px 0; margin: 0 0 28px;
+               border-top: 1px solid var(--border-strong);
+               border-bottom: 1px solid var(--border-strong);
+               font-size: 14px; flex-wrap: wrap; }
+  .heartbeat-line { font-variant-numeric: tabular-nums; color: var(--fg); }
   .heartbeat-line.muted { color: var(--muted); }
-  .heartbeat-pill { display: inline-block; padding: 3px 10px;
-                    border-radius: 4px; font-size: 11px; font-weight: 700;
-                    color: white; letter-spacing: 0.05em;
+  .heartbeat-pill { display: inline-block; padding: 4px 12px;
+                    border-radius: 0; font-size: 10px; font-weight: 700;
+                    color: var(--bg); letter-spacing: 0.12em;
                     text-transform: uppercase; }
   .hb-alive { background: var(--B); }
   .hb-slow  { background: var(--D); }
-  .hb-stale { background: var(--X); }
+  .hb-stale { background: var(--R); }
   .hb-unknown { background: var(--muted); }
 
-  /* Tabs — three views: indexed area (cl_watcher live scan), appraised
-     (last 24 h BUY/MAYBE/SKIP), and archive (older). The active tab is
-     decided by URL hash if present, else by port (8766 → appraised,
-     anything else → indexed). */
-  .tabs { display: flex; gap: 4px; margin: 8px 0 24px;
-          border-bottom: 1px solid var(--border);
+  /* Tabs — editorial nav with uppercase labels, generous letter-spacing,
+     and a bold ink underline for the active tab. Default tab is decided
+     by URL hash if present, else by port (8766 → appraised, anything
+     else → indexed). */
+  .tabs { display: flex; gap: 0; margin: 32px 0 40px;
+          border-bottom: 1px solid var(--border-strong);
           padding-bottom: 0; }
   .tabs button {
-    background: none; border: none; padding: 10px 16px;
-    color: var(--muted); font: inherit; font-size: 13px; font-weight: 600;
-    letter-spacing: 0.02em;
-    cursor: pointer; border-bottom: 2px solid transparent;
-    margin-bottom: -1px; transition: color 0.12s, border-color 0.12s;
+    background: none; border: none;
+    padding: 16px 24px 16px 0;
+    margin-right: 32px;
+    color: var(--muted); font: inherit; font-size: 12px; font-weight: 600;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    cursor: pointer; border-bottom: 3px solid transparent;
+    margin-bottom: -1px; transition: color 0.15s, border-color 0.15s;
   }
   .tabs button:hover { color: var(--fg); }
   .tabs button.active { color: var(--fg); border-bottom-color: var(--fg); }
-  .tabs .tab-count { color: var(--muted); font-weight: 400; margin-left: 6px;
-                     font-variant-numeric: tabular-nums; }
+  .tabs .tab-count { color: var(--muted); font-weight: 400; margin-left: 8px;
+                     font-variant-numeric: tabular-nums;
+                     letter-spacing: 0.04em; }
   .tabs button.active .tab-count { color: var(--muted); }
   .tab-pane { display: none; }
   .tab-pane.active { display: block; }
@@ -272,12 +306,17 @@ INDEX_HTML = """<!doctype html>
   </nav>
 
   <section class="tab-pane cl-section" data-tab="indexed">
-    <!-- Scraper heartbeat — shows whether cl_watcher is up-to-date even
-         when nothing matches the user's specs. -->
+    <!-- Scraper heartbeat — distinguishes "last check ran" (the watcher
+         polled Craigslist) from "last insert" (a new row landed). When
+         the scraper polls but everything is a duplicate, the last-check
+         time still updates while last-insert stays put. -->
     <div class="heartbeat" id="heartbeat">
       <span class="heartbeat-pill" id="hb-pill">—</span>
       <span class="heartbeat-line">
-        Last insert: <strong id="hb-last">—</strong>
+        Last check: <strong id="hb-check">—</strong>
+      </span>
+      <span class="heartbeat-line muted">
+        Last insert: <span id="hb-last">—</span>
       </span>
       <span class="heartbeat-line muted">
         <span id="hb-15m">—</span> in 15 min ·
@@ -689,21 +728,27 @@ INDEX_HTML = """<!doctype html>
     return (secs / 86400).toFixed(1) + ' d ago';
   }
   function renderHeartbeat(d) {
-    const secs = d.seconds_since_last_insert;
+    // The pill reflects scraper LIVENESS, not insert freshness — the
+    // scraper can be alive while nothing new is showing up. Use the
+    // last-check timestamp as the primary signal, with the schedule
+    // expectation of one check every 15 min.
+    const checkSecs = d.seconds_since_last_check;
+    const insSecs = d.seconds_since_last_insert;
     const pill = document.getElementById('hb-pill');
     let label, cls;
-    if (secs == null) {
+    if (checkSecs == null) {
       label = 'unknown'; cls = 'hb-unknown';
-    } else if (secs < 30 * 60) {
-      label = 'alive'; cls = 'hb-alive';
-    } else if (secs < 2 * 3600) {
-      label = 'slow'; cls = 'hb-slow';
+    } else if (checkSecs < 20 * 60) {
+      label = 'alive'; cls = 'hb-alive';   // ran within last 20 min
+    } else if (checkSecs < 60 * 60) {
+      label = 'slow'; cls = 'hb-slow';     // missed a cycle
     } else {
-      label = 'stale'; cls = 'hb-stale';
+      label = 'stale'; cls = 'hb-stale';   // missed multiple cycles
     }
     pill.textContent = label;
     pill.className = 'heartbeat-pill ' + cls;
-    document.getElementById('hb-last').textContent = fmtAge(secs);
+    document.getElementById('hb-check').textContent = fmtAge(checkSecs);
+    document.getElementById('hb-last').textContent = fmtAge(insSecs);
     document.getElementById('hb-15m').textContent = (d.inserts_15m ?? '—').toLocaleString();
     document.getElementById('hb-1h').textContent = (d.inserts_1h ?? '—').toLocaleString();
     document.getElementById('hb-24h').textContent = (d.inserts_24h ?? '—').toLocaleString();
@@ -1099,8 +1144,16 @@ def query_state():
         meta_phase = conn.execute(
             "SELECT value FROM meta WHERE key='current_phase'"
         ).fetchone()
+        meta_check_start = conn.execute(
+            "SELECT value FROM meta WHERE key='last_check_started_at'"
+        ).fetchone()
+        meta_check_end = conn.execute(
+            "SELECT value FROM meta WHERE key='last_check_finished_at'"
+        ).fetchone()
         target_from_meta = int(meta_target[0]) if meta_target else None
         phase_from_meta = meta_phase[0] if meta_phase else None
+        last_check_started_at = meta_check_start[0] if meta_check_start else None
+        last_check_finished_at = meta_check_end[0] if meta_check_end else None
         target_backfill = target_from_meta or TARGET_BACKFILL_FALLBACK
 
         # "Recent activity": is there an insert in the last 90s?
@@ -1116,6 +1169,21 @@ def query_state():
                 if last_dt else None
         except Exception:
             recent_insert_secs = None
+
+        # Compute "seconds since last check" — preferring the start
+        # timestamp so that a run currently in progress still counts.
+        try:
+            from datetime import datetime as _dt2, timezone as _tz2
+            check_anchor = last_check_started_at or last_check_finished_at
+            if check_anchor:
+                # Strip Z, parse, treat as UTC-naive
+                _s = check_anchor.rstrip("Z")
+                _t = _dt2.fromisoformat(_s)
+                secs_since_check = (_dt2.utcnow() - _t).total_seconds()
+            else:
+                secs_since_check = None
+        except Exception:
+            secs_since_check = None
 
         # Heartbeat counts — how many rows landed in each rolling window.
         # Used by the Indexed tab to show the user that scraping is still
@@ -1192,6 +1260,9 @@ def query_state():
         "db_path": str(db),
         "last_insert_at": _utc_iso(last_insert),
         "seconds_since_last_insert": recent_insert_secs,
+        "last_check_started_at": _utc_iso(last_check_started_at),
+        "last_check_finished_at": _utc_iso(last_check_finished_at),
+        "seconds_since_last_check": secs_since_check,
         "inserts_15m": inserts_15m,
         "inserts_1h": inserts_1h,
         "inserts_24h": inserts_24h,

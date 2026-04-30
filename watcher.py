@@ -3,6 +3,7 @@ import json
 import os
 import sys
 import logging
+from datetime import datetime
 from logging.handlers import TimedRotatingFileHandler
 
 from dotenv import load_dotenv
@@ -65,6 +66,13 @@ def main():
                  (str(target_total),))
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('current_phase', ?)",
                  ("Initial backfill" if first_run else "Incremental scan",))
+    # Heartbeat — the dashboard surfaces this as "last check ran" so the
+    # user can tell the watcher is actually polling Craigslist even on
+    # cycles where every listing is a duplicate (no new rows inserted).
+    conn.execute(
+        "INSERT OR REPLACE INTO meta(key, value) "
+        "VALUES('last_check_started_at', ?)",
+        (datetime.utcnow().isoformat() + "Z",))
     conn.commit()
 
     notify_batch = []
@@ -197,6 +205,10 @@ def main():
             log.info("No matches this run; no email sent")
 
     conn.execute("INSERT OR REPLACE INTO meta(key, value) VALUES('current_phase', 'Idle')")
+    conn.execute(
+        "INSERT OR REPLACE INTO meta(key, value) "
+        "VALUES('last_check_finished_at', ?)",
+        (datetime.utcnow().isoformat() + "Z",))
     conn.commit()
     log.info(f"Run done. fetched={len(listings)} new={len(new_listings)} "
              f"scored={scored} notified={len(notify_batch)} errors={errors}")

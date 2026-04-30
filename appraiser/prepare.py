@@ -102,8 +102,22 @@ def main():
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     if not config.SOURCE_DB_PATH.exists():
+        # Useful diagnostic when this fails — env vars and parent-dir
+        # listing surface most "scheduled task can't see the file"
+        # pathologies (UAC virtualization, OneDrive cloud-only files,
+        # sandbox isolation, S4U token mismatch).
+        import os as _os
         print(f"cl_watcher state.db not found at {config.SOURCE_DB_PATH}.",
               file=sys.stderr)
+        print(f"  LOCALAPPDATA={_os.environ.get('LOCALAPPDATA')!r}",
+              file=sys.stderr)
+        parent = config.SOURCE_DB_PATH.parent
+        if parent.exists():
+            try:
+                print(f"  parent contents={_os.listdir(parent)!r}",
+                      file=sys.stderr)
+            except OSError as e:
+                print(f"  listdir failed: {e}", file=sys.stderr)
         print("Has cl_watcher run yet?", file=sys.stderr)
         sys.exit(1)
 
