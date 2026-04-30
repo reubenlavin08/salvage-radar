@@ -194,6 +194,16 @@ INDEX_HTML = """<!doctype html>
                   text-transform: uppercase; }
   .window-count { font-size: 12px; font-weight: 400; color: var(--muted);
                   margin-left: 8px; font-variant-numeric: tabular-nums; }
+  /* "Times" / "Posted" column cells — keep them compact and muted so
+     the more actionable Rec/Distance columns stay visually dominant.
+     The two-line stack (posted vs. appraised) uses .t-line + .t-label. */
+  .posted-cell { color: var(--muted); font-size: 12px; white-space: nowrap;
+                 font-variant-numeric: tabular-nums; }
+  .t-line { line-height: 1.4; }
+  .t-label { color: var(--muted); opacity: 0.7;
+             text-transform: uppercase; font-size: 10px;
+             letter-spacing: 0.05em; margin-right: 4px; }
+
   /* Scraper heartbeat — shown at the top of the Indexed tab. Status pill
      turns from green ("alive") to amber ("slow") to red ("stale") based
      on how long ago the last row landed. */
@@ -318,7 +328,8 @@ INDEX_HTML = """<!doctype html>
     <h2>Recently processed</h2>
     <table>
       <thead><tr>
-        <th>When</th>
+        <th>Indexed</th>
+        <th>Posted</th>
         <th>Tier</th>
         <th class="num" style="text-align:right">Dist</th>
         <th class="num" style="text-align:right">Price</th>
@@ -358,6 +369,21 @@ INDEX_HTML = """<!doctype html>
       <span id="appr-live-meta" class="meta">—</span>
     </div>
 
+    <h2 style="margin-top:24px">
+      Recently appraised — feed <span class="window-label">last 24 h, every result</span>
+      <span class="window-count" id="appr-feed-count"></span>
+    </h2>
+    <table>
+      <thead><tr>
+        <th>Appraised</th>
+        <th>Rec</th>
+        <th>Posted</th>
+        <th class="num" style="text-align:right">Ask</th>
+        <th>Title / Reasoning</th>
+      </tr></thead>
+      <tbody id="appr-feed-rows"></tbody>
+    </table>
+
     <h2 style="margin-top:24px" id="appr-live-heading" hidden>In-flight preview (not yet aggregated)</h2>
     <table id="appr-live-table" hidden>
       <thead><tr>
@@ -377,6 +403,7 @@ INDEX_HTML = """<!doctype html>
     <table>
       <thead><tr>
         <th>Rec</th>
+        <th>Times</th>
         <th class="num" style="text-align:right">Distance</th>
         <th>Tier</th>
         <th class="num" style="text-align:right">Ratio</th>
@@ -396,6 +423,7 @@ INDEX_HTML = """<!doctype html>
     <table>
       <thead><tr>
         <th>Rec</th>
+        <th>Times</th>
         <th class="num" style="text-align:right">Distance</th>
         <th class="num" style="text-align:right">Ask</th>
         <th class="num" style="text-align:right">Salvage</th>
@@ -414,6 +442,7 @@ INDEX_HTML = """<!doctype html>
     <table>
       <thead><tr>
         <th>Rec</th>
+        <th>Times</th>
         <th class="num" style="text-align:right">Distance</th>
         <th>Tier</th>
         <th class="num" style="text-align:right">Ratio</th>
@@ -433,6 +462,7 @@ INDEX_HTML = """<!doctype html>
     <table>
       <thead><tr>
         <th>Rec</th>
+        <th>Times</th>
         <th class="num" style="text-align:right">Distance</th>
         <th class="num" style="text-align:right">Ask</th>
         <th class="num" style="text-align:right">Salvage</th>
@@ -539,12 +569,13 @@ INDEX_HTML = """<!doctype html>
   function renderRecent(rows) {
     const tb = document.getElementById("recent-rows");
     if (!rows.length) {
-      tb.innerHTML = '<tr><td colspan="8" class="empty">Nothing yet.</td></tr>';
+      tb.innerHTML = '<tr><td colspan="9" class="empty">Nothing yet.</td></tr>';
       return;
     }
     tb.innerHTML = rows.map(r => `
       <tr>
         <td class="num">${timeShort(r.first_seen_at)}</td>
+        <td class="num posted-cell">${fmtPosted(r.posted_at)}</td>
         <td>${tierPill(r.tier)} ${geoMark(r.geo_source)}</td>
         <td class="num">${fmtDist(r.distance_km)}</td>
         <td class="num">${fmtPrice(r.ask_price, r.price_uncertain)}</td>
@@ -556,6 +587,38 @@ INDEX_HTML = """<!doctype html>
           ${bodyDetail(r.body)}
         </td>
       </tr>`).join("");
+  }
+
+  // ---------- Time formatting ----------
+  // Renders an ISO timestamp like "2026-04-25T17:59:19-0700" as either
+  // a relative age ("3 d ago") for recent values or an absolute date
+  // ("Apr 25") for older ones. "—" when missing.
+  function fmtAge2(s) {
+    if (!s) return null;
+    const d = new Date(s);
+    if (isNaN(d)) return null;
+    const now = new Date();
+    const diff = (now - d) / 1000;
+    if (diff < 0) return d.toLocaleString();
+    if (diff < 3600)   return Math.round(diff / 60) + ' min ago';
+    if (diff < 86400)  return Math.round(diff / 3600) + ' h ago';
+    if (diff < 7 * 86400) return Math.round(diff / 86400) + ' d ago';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  }
+  function fmtPosted(s) {
+    const v = fmtAge2(s);
+    return v ? v : '<span class="muted">—</span>';
+  }
+  // For appraiser tables — shows BOTH "posted on Craigslist" (when the
+  // listing went up) and "appraised by us" (when our pipeline scored it)
+  // so you can tell whether stale listings are clogging the queue.
+  function fmtTimes(posted_at, run_at) {
+    const p = fmtAge2(posted_at);
+    const r = fmtAge2(run_at);
+    const out = [];
+    if (p) out.push(`<div class="t-line"><span class="t-label">posted</span> ${p}</div>`);
+    if (r) out.push(`<div class="t-line"><span class="t-label">appr.</span> ${r}</div>`);
+    return out.length ? out.join('') : '<span class="muted">—</span>';
   }
 
   async function refresh() {
@@ -698,7 +761,7 @@ INDEX_HTML = """<!doctype html>
       const msg = tbodyId === 'appr-top-archive-rows'
         ? 'No archive picks yet.'
         : 'No BUY/MAYBE picks in the last 24 h — wait for the next cycle.';
-      tb.innerHTML = `<tr><td colspan="9" class="empty">${msg}</td></tr>`;
+      tb.innerHTML = `<tr><td colspan="10" class="empty">${msg}</td></tr>`;
       return;
     }
     // Re-sort: distance band first, then ratio descending.
@@ -710,6 +773,7 @@ INDEX_HTML = """<!doctype html>
     tb.innerHTML = rows.map(r => `
       <tr>
         <td>${recoPill(r.recommendation)}</td>
+        <td class="posted-cell">${fmtTimes(r.posted_at, r.run_at)}</td>
         ${distCell(r.distance_km)}
         <td>${tierMini(r.tier)}</td>
         <td class="num ratio-cell ${ratioClass(r.ratio)}">${r.ratio ? r.ratio.toFixed(2) + 'x' : '—'}</td>
@@ -730,15 +794,35 @@ INDEX_HTML = """<!doctype html>
       const msg = tbodyId === 'appr-skip-archive-rows'
         ? 'No archive skips yet.'
         : 'No skipped items in the last 24 h.';
-      tb.innerHTML = `<tr><td colspan="5" class="empty">${msg}</td></tr>`;
+      tb.innerHTML = `<tr><td colspan="6" class="empty">${msg}</td></tr>`;
       return;
     }
     tb.innerHTML = rows.map(r => `
       <tr>
         <td>${recoPill(r.recommendation)}</td>
+        <td class="posted-cell">${fmtTimes(r.posted_at, r.run_at)}</td>
         ${distCell(r.distance_km)}
         <td class="num">${fmtMoney(r.ask_price)}</td>
         <td class="num">${fmtMoney(r.salvage_realized)}</td>
+        <td>${summaryCell(r)}</td>
+      </tr>
+    `).join('');
+  }
+
+  // Chronological feed of every appraisal in the last 24 h. Shows the
+  // appraiser is doing work even on cycles that produce no BUY/MAYBE.
+  function renderApprFeed(rows) {
+    const tb = document.getElementById('appr-feed-rows');
+    if (!rows || !rows.length) {
+      tb.innerHTML = '<tr><td colspan="5" class="empty">No appraisals in the last 24 h.</td></tr>';
+      return;
+    }
+    tb.innerHTML = rows.map(r => `
+      <tr>
+        <td class="posted-cell"><strong>${fmtPosted(r.run_at)}</strong></td>
+        <td>${recoPill(r.recommendation)}</td>
+        <td class="posted-cell">${fmtPosted(r.posted_at)}</td>
+        <td class="num">${fmtMoney(r.ask_price)}</td>
         <td>${summaryCell(r)}</td>
       </tr>
     `).join('');
@@ -794,6 +878,9 @@ INDEX_HTML = """<!doctype html>
       renderApprTop(topA, 'appr-top-archive-rows');
       renderApprSkip(skipRR, 'appr-skip-rows');
       renderApprSkip(skipAA, 'appr-skip-archive-rows');
+      const feed = d.feed || [];
+      renderApprFeed(feed);
+      setText('appr-feed-count', feed.length ? `${feed.length} shown` : '0');
       setText('appr-top-recent-count', topR.length ? `${topR.length} shown` : '0');
       setText('appr-top-archive-count', topA.length ? `${topA.length} shown` : '0');
       setText('appr-skip-recent-count', skipRR.length ? `${skipRR.length} shown` : '0');
@@ -1036,9 +1123,9 @@ def query_state():
             f"SELECT {cols} FROM seen_listings "
             "WHERE notified=1 AND tier IN ('A','B','C','D','needs_review') "
             "ORDER BY score DESC LIMIT ?", (TOP_LIMIT,))]
-        recent_cols = "first_seen_at, score, tier, distance_km, ask_price, " \
-                      "price_uncertain, salvage_estimate, neighborhood, " \
-                      "title, geo_source"
+        recent_cols = "first_seen_at, posted_at, score, tier, distance_km, " \
+                      "ask_price, price_uncertain, salvage_estimate, " \
+                      "neighborhood, title, geo_source"
         if has_body:
             recent_cols += ", body"
         recent = [dict(r) for r in conn.execute(
@@ -1199,6 +1286,16 @@ def query_appraisals():
             "  AND run_at < datetime('now','-1 day') "
             "ORDER BY ratio DESC LIMIT ?", (APPRAISAL_TOP_LIMIT,)))
 
+        # Chronological feed of every appraisal in the last 24 h —
+        # regardless of recommendation. Lets the user see "is the
+        # appraiser actually doing anything right now" at a glance.
+        feed_rows = list(conn.execute(
+            "SELECT rss_id, run_at, ask_price, salvage_realized, ratio, "
+            "       recommendation, confidence, summary "
+            "FROM appraisal "
+            "WHERE run_at >= datetime('now','-1 day') "
+            "ORDER BY run_at DESC LIMIT 50"))
+
         # Skip samples — same recent/archive split.
         skip_recent_rows = list(conn.execute(
             "SELECT rss_id, run_at, ask_price, salvage_realized, ratio, "
@@ -1219,13 +1316,14 @@ def query_appraisals():
         skip_rows = skip_recent_rows + skip_archive_rows
 
         # Pull the cl_watcher fields for these rss_ids in a single query
-        all_rss = list({r["rss_id"] for r in (top_rows + skip_rows)})
+        all_rss = list({r["rss_id"]
+                        for r in (top_rows + skip_rows + feed_rows)})
         meta = {}
         if all_rss:
             qmarks = ",".join(["?"] * len(all_rss))
             for r in src.execute(
                 f"SELECT rss_id, title, body, link, neighborhood, "
-                f"       ask_price, section, distance_km, tier "
+                f"       ask_price, section, distance_km, tier, posted_at "
                 f"FROM seen_listings WHERE rss_id IN ({qmarks})",
                 all_rss
             ):
@@ -1242,6 +1340,7 @@ def query_appraisals():
                 "tier": m.get("tier"),
                 "distance_km": m.get("distance_km"),
                 "section": m.get("section"),
+                "posted_at": m.get("posted_at"),
             })
             return d
 
@@ -1254,7 +1353,7 @@ def query_appraisals():
             qmarks = ",".join(["?"] * len(live_rss))
             for r in src.execute(
                 f"SELECT rss_id, title, link, neighborhood, ask_price, "
-                f"       section, distance_km, tier "
+                f"       section, distance_km, tier, posted_at "
                 f"FROM seen_listings WHERE rss_id IN ({qmarks})", live_rss
             ):
                 meta[r["rss_id"]] = dict(r)
@@ -1282,6 +1381,7 @@ def query_appraisals():
                 "ask_price": m.get("ask_price"),
                 "section": m.get("section"),
                 "tier": m.get("tier"),
+                "posted_at": m.get("posted_at"),
             })
 
         return {
@@ -1301,6 +1401,8 @@ def query_appraisals():
             "top_archive": [enrich(r) for r in top_archive_rows],
             "skipped_recent": [enrich(r) for r in skip_recent_rows],
             "skipped_archive": [enrich(r) for r in skip_archive_rows],
+            # Chronological feed — every appraisal in the last 24h.
+            "feed": [enrich(r) for r in feed_rows],
             # Legacy keys retained for backwards compatibility.
             "top": [enrich(r) for r in top_rows],
             "skipped_sample": [enrich(r) for r in skip_rows],
