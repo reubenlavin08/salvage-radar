@@ -3,7 +3,23 @@ from pathlib import Path
 import os
 
 CODE_DIR = Path(__file__).parent
-STATE_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "cl_watcher"
+
+# Resolution order for the state directory:
+#   1. SALVAGE_RADAR_STATE_DIR (explicit override) — set this to escape
+#      Windows AppContainer redirection (e.g. when running this codebase
+#      under Claude Code's sandboxed terminal). Recommended target:
+#      C:\Users\<you>\salvage-radar — outside %LOCALAPPDATA% so the path
+#      resolves identically inside and outside the sandbox.
+#   2. %LOCALAPPDATA%\cl_watcher (Windows default).
+#   3. ~/cl_watcher (any other OS).
+def _resolve_state_dir() -> Path:
+    override = os.environ.get("SALVAGE_RADAR_STATE_DIR")
+    if override:
+        return Path(override)
+    base = os.environ.get("LOCALAPPDATA", str(Path.home()))
+    return Path(base) / "cl_watcher"
+
+STATE_DIR = _resolve_state_dir()
 STATE_DIR.mkdir(parents=True, exist_ok=True)
 
 DB_PATH = STATE_DIR / "state.db"
@@ -182,6 +198,11 @@ TIER_WEIGHTS = {"A": 1.25, "B": 1.10, "C": 1.00, "D": 0.85,
 # Dunbar-area centerpoint (~ 41st & Dunbar)
 DUNBAR_LAT = 49.245
 DUNBAR_LON = -123.185
+
+# Scrape-time hard radius. Anything geocoded > this many km from Dunbar
+# gets tier='EXCLUDE'd at insert time so the appraiser never has to
+# consider it. Saves the body fetch + scoring work too.
+MAX_SCRAPE_DISTANCE_KM = 10.0
 
 # Distance-based tiers (km from Dunbar centerpoint)
 TIER_A_KM = 2.5   # Dunbar core, Pt Grey, UBC east, Kerrisdale W

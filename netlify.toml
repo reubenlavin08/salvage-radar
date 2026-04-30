@@ -1,0 +1,22 @@
+# Netlify build config for the Salvage Radar static snapshot.
+#
+# Workflow: the appraiser cron runs `python export_static.py` after
+# each cycle, which writes a fresh snapshot into ./public/. A git push
+# of that directory triggers Netlify to redeploy. The site is static —
+# data only updates when a new snapshot is pushed, but the URL is
+# permanent and survives the user's laptop being asleep.
+
+[build]
+  # Skip the build step — we ship pre-rendered files.
+  command = ""
+  publish = "public"
+
+[[headers]]
+  for = "/api/*.json"
+  [headers.values]
+    Cache-Control = "public, max-age=900"  # 15 min — matches cron cadence
+
+[[headers]]
+  for = "/index.html"
+  [headers.values]
+    Cache-Control = "public, max-age=300"

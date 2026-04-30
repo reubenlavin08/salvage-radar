@@ -101,6 +101,15 @@ def main():
                 details["latitude"], details["longitude"],
                 L["title"], details["body"], details["neighborhood"])
 
+            # Hard scrape-time radius: anything geocoded beyond
+            # MAX_SCRAPE_DISTANCE_KM is force-excluded so we don't waste
+            # body-fetch / scoring / DB-write effort on it. Listings with
+            # no usable geo (dist is None) fall through to the regular
+            # classify_geo decision.
+            if (dist is not None
+                    and dist > config.MAX_SCRAPE_DISTANCE_KM):
+                tier = "EXCLUDE"
+
             ask, is_free, price_uncertain = scoring.reconcile_price(
                 details["ask_price"], details["price_unknown"], L["section"])
 

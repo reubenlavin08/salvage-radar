@@ -102,6 +102,25 @@ try {
     }
     Log "aggregate: $aggregateJson"
 
+    # 4. Refresh the static Netlify snapshot so the public URL stays
+    # in sync with this cycle's results. Soft-fails — a broken export
+    # shouldn't kill the cron, the next cycle will try again.
+    Set-Location $projectRoot
+    $clWatcher = Join-Path $projectRoot "cl_watcher"
+    if (Test-Path (Join-Path $clWatcher "export_static.py")) {
+        Set-Location $clWatcher
+        $cwPython = Join-Path $clWatcher ".venv\Scripts\python.exe"
+        if (Test-Path $cwPython) {
+            $exportOut = & $cwPython export_static.py 2>&1 | Out-String
+            if ($LASTEXITCODE -eq 0) {
+                Log "export_static: ok"
+            } else {
+                Log ("export_static failed (exit=" + $LASTEXITCODE + "):")
+                Log $exportOut
+            }
+        }
+    }
+
     Log "=== cycle end ==="
 } catch {
     Log "UNHANDLED EXCEPTION: $($_.Exception.Message)"

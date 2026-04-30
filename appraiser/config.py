@@ -11,7 +11,17 @@ from pathlib import Path
 import os
 
 CODE_DIR = Path(__file__).parent
-STATE_DIR = Path(os.environ.get("LOCALAPPDATA", str(Path.home()))) / "cl_watcher"
+
+# Resolution order matches cl_watcher/config.py — see that file for the
+# rationale (Windows AppContainer redirection avoidance).
+def _resolve_state_dir() -> Path:
+    override = os.environ.get("SALVAGE_RADAR_STATE_DIR")
+    if override:
+        return Path(override)
+    base = os.environ.get("LOCALAPPDATA", str(Path.home()))
+    return Path(base) / "cl_watcher"
+
+STATE_DIR = _resolve_state_dir()
 APPRAISAL_DIR = STATE_DIR / "appraiser"
 APPRAISAL_DIR.mkdir(parents=True, exist_ok=True)
 
