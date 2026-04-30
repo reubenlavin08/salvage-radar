@@ -8,13 +8,20 @@ Claude Code subagents — no Anthropic API key needed; all reasoning is on the
 user's Claude subscription.
 
 ## Defaults
-- `max_parallel` = first arg, default **5**
+- `max_parallel` = first arg, default **1** (15-min cycles rarely produce
+                   more than ~20 new listings, which a single agent can
+                   handle comfortably in one batch — parallelism would
+                   just multiply system-prompt overhead)
 - `batch_size`   = second arg, default **100** (larger batches = fewer
                    system-prompt repetitions; the brief is small enough
                    that 100 listings × ~500 tokens fits in the agent's
                    context comfortably)
 - `limit`        = third arg, optional. If set, only this many unappraised
                    listings are processed this run.
+
+For initial backfills or larger one-off batches (e.g. several hundred
+listings to appraise at once), bump `max_parallel` explicitly:
+`/appraise 5 100`. The default is tuned for the routine 15-min cron.
 
 Already-appraised listings (rows in `appraisal.db`) are always skipped by
 default, so running `/appraise` repeatedly walks through new listings only.

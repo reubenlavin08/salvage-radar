@@ -1,8 +1,19 @@
 # Salvage Radar
 
-Two-stage data pipeline that turns Vancouver Craigslist listings into a short, sorted shopping list. The first stage (`cl_watcher/`, this directory's code) scrapes every listing under $30 within ~10 km of UBC. The second stage ([`appraiser/`](appraiser/)) hands them to parallel Claude Code subagents that identify the salvageable components, estimate parts-out value, and rank by profit-per-km.
+A learning project I built with Claude as a pair programmer to teach myself **data collection, data filtration, and LLM-assisted data analysis** end to end. The product is a two-stage pipeline that turns ~2,000 Vancouver Craigslist listings into a short, sorted shopping list of broken electronics worth driving for; the point of the exercise was understanding the engineering decisions at every layer of a real data pipeline.
 
-Built to find broken electronics — 3D printers, hoverboards, scopes, robot vacuums — with salvage value 2–3× the asking price. Runs locally on a laptop subscription; about **3 million tokens** to appraise 2,000 listings end to end, no API keys, no cloud bill.
+What I worked through (with AI guidance):
+
+1. **Web scraping with rate-limited polite HTTP** — RSS aggregation, body / attribute enrichment per listing, deduplication, idempotent SQLite migrations.
+2. **Geo filtering** with haversine distance + hard-exclusion polygons (Cambie meridian, Lions Gate, Fraser river) when distance alone misses the right neighborhoods.
+3. **Heuristic rule design** — a hand-tuned salvage-estimate table, brand boost, condition multipliers, accessory-only kill words, buyer-post detection. The kind of work where 80% of the result is in the last 20% of tuning.
+4. **Why heuristic filters fail** — substring matching against a category list ("raspberry pi") misses "RPi 4", "lab DC source" misses "bench psu", "WTB" misses "wanted to buy". I lost ~40% of relevant listings before the next layer caught them.
+5. **Semantic embeddings** as a coarse classifier — local sentence-transformers (`all-MiniLM-L6-v2`) and Voyage AI as backends, cosine similarity over pre-embedded category / buyer / accessory phrases, SQLite-backed embedding cache.
+6. **LLM pipeline design with Claude Code subagents** — parallelizing 5–8 agents over ~520 surviving listings, compact system prompts (≈1,400 tokens) with on-demand reference docs, structured JSON output schemas, and a deterministic Python rule layer for the final BUY/MAYBE/SKIP decision so every recommendation is auditable.
+7. **Token-cost accounting** — three rounds of optimization brought a full 2,000-listing run from ~3 M tokens to ~1.5 M.
+8. **Operational engineering** — Windows Task Scheduler integration so the watcher fetches every 15 min and the appraiser fires 3 min later — guaranteed to run after each scrape — using a single subagent on whatever new listings the watcher just inserted; an HTTP dashboard with live progress at `:8765` for the scraper and a tabbed view at `:8766` (Indexed / Appraised / Archive), and a >1 GB SQLite database that survives across runs.
+
+The whole thing runs locally on a laptop subscription, no API keys, no cloud bill. It's not a polished product — it's a notebook of an engineering student learning data pipelines by building one.
 
 ![cl_watcher live dashboard](docs/01-cl_watcher-dashboard.png)
 *Live-scan dashboard at `localhost:8765` while cl_watcher fetches Craigslist RSS feeds and enriches each listing with neighborhood, distance from Dunbar, and a heuristic salvage estimate.*

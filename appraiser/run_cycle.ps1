@@ -68,7 +68,7 @@ if (-not $claude) {
     exit 1
 }
 
-$claudeOutput = & claude -p "/appraise 5 100" 2>&1 | Out-String
+$claudeOutput = & claude -p "/appraise 1 100" 2>&1 | Out-String
 Log "claude: $claudeOutput"
 
 # 3. Aggregate (idempotent — safe even if /appraise already aggregated).

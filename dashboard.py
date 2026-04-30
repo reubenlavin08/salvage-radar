@@ -187,11 +187,33 @@ INDEX_HTML = """<!doctype html>
   #appr-skip-rows a:hover,
   #appr-live-rows a:hover { border-bottom-style: solid; }
 
-  /* "Focus mode" — used on port 8766 to make appraisals the primary view.
-     Hides the cl_watcher live-scan tables / chips so the dashboard is
-     all about appraisals. */
-  body.focus-appraiser .cl-section { display: none; }
-  body.focus-appraiser h1::after { content: " — appraisals"; color: var(--muted); font-weight: 400; }
+  /* "Recent vs. archive" headings + collapsible archive blocks. */
+  .window-label { font-size: 11px; font-weight: 400; color: var(--muted);
+                  letter-spacing: 0.04em; margin-left: 6px;
+                  text-transform: uppercase; }
+  .window-count { font-size: 12px; font-weight: 400; color: var(--muted);
+                  margin-left: 8px; font-variant-numeric: tabular-nums; }
+  /* Tabs — three views: indexed area (cl_watcher live scan), appraised
+     (last 24 h BUY/MAYBE/SKIP), and archive (older). The active tab is
+     decided by URL hash if present, else by port (8766 → appraised,
+     anything else → indexed). */
+  .tabs { display: flex; gap: 4px; margin: 8px 0 24px;
+          border-bottom: 1px solid var(--border);
+          padding-bottom: 0; }
+  .tabs button {
+    background: none; border: none; padding: 10px 16px;
+    color: var(--muted); font: inherit; font-size: 13px; font-weight: 600;
+    letter-spacing: 0.02em;
+    cursor: pointer; border-bottom: 2px solid transparent;
+    margin-bottom: -1px; transition: color 0.12s, border-color 0.12s;
+  }
+  .tabs button:hover { color: var(--fg); }
+  .tabs button.active { color: var(--fg); border-bottom-color: var(--fg); }
+  .tabs .tab-count { color: var(--muted); font-weight: 400; margin-left: 6px;
+                     font-variant-numeric: tabular-nums; }
+  .tabs button.active .tab-count { color: var(--muted); }
+  .tab-pane { display: none; }
+  .tab-pane.active { display: block; }
 </style>
 </head>
 <body>
@@ -205,7 +227,17 @@ INDEX_HTML = """<!doctype html>
     <div class="timestamp" id="ts">—</div>
   </header>
 
-  <div class="cl-section">
+  <nav class="tabs" id="tabs">
+    <button data-tab="indexed">Indexed area</button>
+    <button data-tab="appraised">Appraised
+      <span class="tab-count" id="tab-count-appraised"></span>
+    </button>
+    <button data-tab="archive">Archive
+      <span class="tab-count" id="tab-count-archive"></span>
+    </button>
+  </nav>
+
+  <section class="tab-pane cl-section" data-tab="indexed">
     <div class="phase-block">
       <span class="phase-label" id="phase">—</span>
       <span class="phase-detail" id="phase-detail"></span>
@@ -263,10 +295,10 @@ INDEX_HTML = """<!doctype html>
       </tr></thead>
       <tbody id="recent-rows"></tbody>
     </table>
-  </div>
+  </section>
 
-  <h2 id="appraiser-heading">Appraiser — AI salvage valuation</h2>
-  <div id="appraiser-section">
+  <section class="tab-pane" data-tab="appraised" id="appraiser-section">
+    <h2 id="appraiser-heading" style="margin-top:0">Appraiser — AI salvage valuation</h2>
     <div class="appraisal-banner" id="appraiser-banner">
       <span class="label">Status:</span>
       <span id="appr-status" class="meta">loading…</span>
@@ -289,7 +321,10 @@ INDEX_HTML = """<!doctype html>
       <tbody id="appr-live-rows"></tbody>
     </table>
 
-    <h2 style="margin-top:24px">Top picks (BUY / MAYBE)</h2>
+    <h2 style="margin-top:24px">
+      Recently appraised <span class="window-label">last 24 h</span>
+      <span class="window-count" id="appr-top-recent-count"></span>
+    </h2>
     <table>
       <thead><tr>
         <th>Rec</th>
@@ -305,7 +340,10 @@ INDEX_HTML = """<!doctype html>
       <tbody id="appr-top-rows"></tbody>
     </table>
 
-    <h2 style="margin-top:32px">Skipped (sample of 30)</h2>
+    <h2 style="margin-top:32px">
+      Recently skipped <span class="window-label">last 24 h, sample of 30</span>
+      <span class="window-count" id="appr-skip-recent-count"></span>
+    </h2>
     <table>
       <thead><tr>
         <th>Rec</th>
@@ -316,7 +354,44 @@ INDEX_HTML = """<!doctype html>
       </tr></thead>
       <tbody id="appr-skip-rows"></tbody>
     </table>
-  </div>
+  </section>
+
+  <section class="tab-pane" data-tab="archive">
+    <h2 style="margin-top:0">
+      Archive — BUY / MAYBE picks
+      <span class="window-label">older than 24 h</span>
+      <span class="window-count" id="appr-top-archive-count"></span>
+    </h2>
+    <table>
+      <thead><tr>
+        <th>Rec</th>
+        <th class="num" style="text-align:right">Distance</th>
+        <th>Tier</th>
+        <th class="num" style="text-align:right">Ratio</th>
+        <th class="num" style="text-align:right">Ask</th>
+        <th class="num" style="text-align:right">Salvage</th>
+        <th>Conf</th>
+        <th>Neighborhood</th>
+        <th>Title / Reasoning</th>
+      </tr></thead>
+      <tbody id="appr-top-archive-rows"></tbody>
+    </table>
+
+    <h2 style="margin-top:32px">
+      Archive — skipped <span class="window-label">older than 24 h, sample of 30</span>
+      <span class="window-count" id="appr-skip-archive-count"></span>
+    </h2>
+    <table>
+      <thead><tr>
+        <th>Rec</th>
+        <th class="num" style="text-align:right">Distance</th>
+        <th class="num" style="text-align:right">Ask</th>
+        <th class="num" style="text-align:right">Salvage</th>
+        <th>Title / Reason</th>
+      </tr></thead>
+      <tbody id="appr-skip-archive-rows"></tbody>
+    </table>
+  </section>
 
   <footer>
     Auto-refreshing every 3 s. DB: <code id="dbpath">—</code>
@@ -537,10 +612,15 @@ INDEX_HTML = """<!doctype html>
     return 4;
   }
 
-  function renderApprTop(rows) {
-    const tb = document.getElementById('appr-top-rows');
+  function renderApprTop(rows, tbodyId) {
+    tbodyId = tbodyId || 'appr-top-rows';
+    const tb = document.getElementById(tbodyId);
+    if (!tb) return;
     if (!rows || !rows.length) {
-      tb.innerHTML = '<tr><td colspan="9" class="empty">No BUY/MAYBE picks yet — run the appraiser, or check /api/appraisals.</td></tr>';
+      const msg = tbodyId === 'appr-top-archive-rows'
+        ? 'No archive picks yet.'
+        : 'No BUY/MAYBE picks in the last 24 h — wait for the next cycle.';
+      tb.innerHTML = `<tr><td colspan="9" class="empty">${msg}</td></tr>`;
       return;
     }
     // Re-sort: distance band first, then ratio descending.
@@ -564,10 +644,15 @@ INDEX_HTML = """<!doctype html>
     `).join('');
   }
 
-  function renderApprSkip(rows) {
-    const tb = document.getElementById('appr-skip-rows');
+  function renderApprSkip(rows, tbodyId) {
+    tbodyId = tbodyId || 'appr-skip-rows';
+    const tb = document.getElementById(tbodyId);
+    if (!tb) return;
     if (!rows || !rows.length) {
-      tb.innerHTML = '<tr><td colspan="5" class="empty">No skipped items yet.</td></tr>';
+      const msg = tbodyId === 'appr-skip-archive-rows'
+        ? 'No archive skips yet.'
+        : 'No skipped items in the last 24 h.';
+      tb.innerHTML = `<tr><td colspan="5" class="empty">${msg}</td></tr>`;
       return;
     }
     tb.innerHTML = rows.map(r => `
@@ -581,6 +666,11 @@ INDEX_HTML = """<!doctype html>
     `).join('');
   }
 
+  function setText(id, v) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = v;
+  }
+
   async function refreshAppr() {
     try {
       const r = await fetch('/api/appraisals');
@@ -591,21 +681,45 @@ INDEX_HTML = """<!doctype html>
       dbp.textContent = d.db_path || '—';
       if (!d.available) {
         status.textContent = d.message || 'unavailable';
-        renderApprTop([]); renderApprSkip([]);
+        renderApprTop([], 'appr-top-rows');
+        renderApprTop([], 'appr-top-archive-rows');
+        renderApprSkip([], 'appr-skip-rows');
+        renderApprSkip([], 'appr-skip-archive-rows');
         return;
       }
       const recs = d.by_recommendation || {};
+      const recsR = d.by_recommendation_recent || {};
       const buy = recs.BUY || 0, maybe = recs.MAYBE || 0, skip = recs.SKIP || 0;
+      const buyR = recsR.BUY || 0, maybeR = recsR.MAYBE || 0, skipR = recsR.SKIP || 0;
       const lr = d.last_run ? new Date(d.last_run).toLocaleString() : '—';
       status.innerHTML = `
-        <strong>${d.total}</strong> appraised ·
+        <strong>${d.total_recent || 0}</strong> in last 24 h ·
+        <span class="reco-pill reco-BUY">BUY ${buyR}</span>
+        <span class="reco-pill reco-MAYBE">MAYBE ${maybeR}</span>
+        <span class="reco-pill reco-SKIP">SKIP ${skipR}</span>
+        · all-time:
         <span class="reco-pill reco-BUY">BUY ${buy}</span>
         <span class="reco-pill reco-MAYBE">MAYBE ${maybe}</span>
         <span class="reco-pill reco-SKIP">SKIP ${skip}</span>
         · last run: <span class="meta">${lr}</span>
       `;
-      renderApprTop(d.top || []);
-      renderApprSkip(d.skipped_sample || []);
+      const topR = d.top_recent || [];
+      const topA = d.top_archive || [];
+      const skipRR = d.skipped_recent || [];
+      const skipAA = d.skipped_archive || [];
+      renderApprTop(topR, 'appr-top-rows');
+      renderApprTop(topA, 'appr-top-archive-rows');
+      renderApprSkip(skipRR, 'appr-skip-rows');
+      renderApprSkip(skipAA, 'appr-skip-archive-rows');
+      setText('appr-top-recent-count', topR.length ? `${topR.length} shown` : '0');
+      setText('appr-top-archive-count', topA.length ? `${topA.length} shown` : '0');
+      setText('appr-skip-recent-count', skipRR.length ? `${skipRR.length} shown` : '0');
+      setText('appr-skip-archive-count', skipAA.length ? `${skipAA.length} shown` : '0');
+      // Tab labels — show count next to the tab name so the user can see
+      // at a glance what each tab contains without having to switch.
+      setText('tab-count-appraised', d.total_recent != null ? `${d.total_recent}` : '');
+      const archiveCount = (d.total || 0) - (d.total_recent || 0);
+      setText('tab-count-archive', archiveCount > 0 ? `${archiveCount}` : '');
       renderApprLive(d.live || {});
     } catch (e) { /* ignore */ }
   }
@@ -670,6 +784,43 @@ INDEX_HTML = """<!doctype html>
   }
   refreshAppr();
   setInterval(refreshAppr, 5000);
+
+  // ---------- Tab switching ----------
+  function activateTab(name) {
+    const panes = document.querySelectorAll('.tab-pane');
+    const buttons = document.querySelectorAll('#tabs button');
+    let matched = false;
+    panes.forEach(p => {
+      const m = p.dataset.tab === name;
+      p.classList.toggle('active', m);
+      if (m) matched = true;
+    });
+    buttons.forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === name);
+    });
+    if (matched && location.hash.slice(1) !== name) {
+      // Update hash without scrolling.
+      history.replaceState(null, '', '#' + name);
+    }
+  }
+
+  // Default tab: URL hash if present, else port-based fallback (8766
+  // boots straight into the appraiser view, anything else into the
+  // indexed live-scan view).
+  const _defaultTab = location.port === '8766' ? 'appraised' : 'indexed';
+  const _initialTab = location.hash.slice(1) || _defaultTab;
+  activateTab(_initialTab);
+
+  document.getElementById('tabs').addEventListener('click', e => {
+    const btn = e.target.closest('button[data-tab]');
+    if (btn) activateTab(btn.dataset.tab);
+  });
+
+  // Allow back/forward / manual hash edits to switch tabs too.
+  window.addEventListener('hashchange', () => {
+    const h = location.hash.slice(1);
+    if (h) activateTab(h);
+  });
 </script>
 </body>
 </html>
@@ -862,32 +1013,62 @@ def query_appraisals():
         conn.row_factory = sqlite3.Row
         src.row_factory = sqlite3.Row
 
-        # Counts
+        # Counts (all-time)
         recs = {row["recommendation"]: row["c"]
                 for row in conn.execute(
                     "SELECT recommendation, COUNT(*) c "
                     "FROM appraisal GROUP BY recommendation")}
         total = sum(recs.values())
 
+        # Counts (last 24 h) so the banner can split "recent vs. archive"
+        recs_recent = {row["recommendation"]: row["c"]
+                       for row in conn.execute(
+                           "SELECT recommendation, COUNT(*) c "
+                           "FROM appraisal "
+                           "WHERE run_at >= datetime('now','-1 day') "
+                           "GROUP BY recommendation")}
+        total_recent = sum(recs_recent.values())
+
         last_run = conn.execute(
             "SELECT MAX(run_at) FROM appraisal").fetchone()[0]
 
-        # Top by ratio (BUY/MAYBE) — capped at APPRAISAL_TOP_LIMIT.
-        # The dashboard sorts client-side by distance band so the closest
-        # high-ratio items float to the top of the user's eye.
-        top_rows = list(conn.execute(
-            "SELECT rss_id, ask_price, salvage_low, salvage_high, "
+        # Top by ratio (BUY/MAYBE), split into "last 24h" and "archive"
+        # so the dashboard surfaces what was just appraised before older
+        # results. Each window is independently capped so the user always
+        # sees both, even when a single cycle dominates.
+        top_recent_rows = list(conn.execute(
+            "SELECT rss_id, run_at, ask_price, salvage_low, salvage_high, "
             "salvage_realized, ratio, recommendation, confidence, summary "
             "FROM appraisal "
             "WHERE recommendation IN ('BUY','MAYBE') "
+            "  AND run_at >= datetime('now','-1 day') "
+            "ORDER BY ratio DESC LIMIT ?", (APPRAISAL_TOP_LIMIT,)))
+        top_archive_rows = list(conn.execute(
+            "SELECT rss_id, run_at, ask_price, salvage_low, salvage_high, "
+            "salvage_realized, ratio, recommendation, confidence, summary "
+            "FROM appraisal "
+            "WHERE recommendation IN ('BUY','MAYBE') "
+            "  AND run_at < datetime('now','-1 day') "
             "ORDER BY ratio DESC LIMIT ?", (APPRAISAL_TOP_LIMIT,)))
 
-        # Recent skips, in case user wants to audit what got dropped
-        skip_rows = list(conn.execute(
-            "SELECT rss_id, ask_price, salvage_realized, ratio, "
+        # Skip samples — same recent/archive split.
+        skip_recent_rows = list(conn.execute(
+            "SELECT rss_id, run_at, ask_price, salvage_realized, ratio, "
             "       recommendation, confidence, summary "
             "FROM appraisal WHERE recommendation = 'SKIP' "
+            "  AND run_at >= datetime('now','-1 day') "
             "ORDER BY run_at DESC LIMIT 30"))
+        skip_archive_rows = list(conn.execute(
+            "SELECT rss_id, run_at, ask_price, salvage_realized, ratio, "
+            "       recommendation, confidence, summary "
+            "FROM appraisal WHERE recommendation = 'SKIP' "
+            "  AND run_at < datetime('now','-1 day') "
+            "ORDER BY run_at DESC LIMIT 30"))
+
+        # Backwards-compat aliases for any external consumers / tests
+        # that grab `.top` and `.skipped_sample`.
+        top_rows = top_recent_rows + top_archive_rows
+        skip_rows = skip_recent_rows + skip_archive_rows
 
         # Pull the cl_watcher fields for these rss_ids in a single query
         all_rss = list({r["rss_id"] for r in (top_rows + skip_rows)})
@@ -960,7 +1141,15 @@ def query_appraisals():
             "db_path": str(APPRAISAL_DB_PATH),
             "last_run": last_run,
             "total": total,
+            "total_recent": total_recent,
             "by_recommendation": recs,
+            "by_recommendation_recent": recs_recent,
+            # New split keys — the frontend uses these.
+            "top_recent": [enrich(r) for r in top_recent_rows],
+            "top_archive": [enrich(r) for r in top_archive_rows],
+            "skipped_recent": [enrich(r) for r in skip_recent_rows],
+            "skipped_archive": [enrich(r) for r in skip_archive_rows],
+            # Legacy keys retained for backwards compatibility.
             "top": [enrich(r) for r in top_rows],
             "skipped_sample": [enrich(r) for r in skip_rows],
             "live": {**live,
