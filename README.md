@@ -1,3 +1,7 @@
+> **Superseded — kept for reference.** This was the v1 learning project. The ideas here grew into [**bullseye**](https://github.com/reubenlavin08/bullseye) (FB Marketplace + statistical scoring), which is now a shipped Windows app: **[bullseye-app](https://github.com/reubenlavin08/bullseye-app)** → [getbullseye.app](https://getbullseye.app).
+
+---
+
 # Salvage Radar
 
 A learning project I built with Claude as a pair programmer to teach myself **data collection, data filtration, and LLM-assisted data analysis** end to end. The product is a two-stage pipeline that turns ~2,000 Vancouver Craigslist listings into a short, sorted shopping list of broken electronics worth driving for; the point of the exercise was understanding the engineering decisions at every layer of a real data pipeline.
